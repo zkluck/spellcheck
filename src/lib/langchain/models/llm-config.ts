@@ -16,9 +16,9 @@ export function getLLM(): BaseChatModel {
   // 获取自定义 API 基础 URL（如果有）
   const baseURL = process.env.OPENAI_BASE_URL;
 
-  // 创建 ChatOpenAI 实例，使用 gpt-4o 模型
+  // 创建 ChatOpenAI 实例，使用 gemini-2.5-flash-lite 模型
   return new ChatOpenAI({
-    modelName: 'gpt-4o',
+    modelName: 'gemini-2.5-flash-lite',
     temperature: 0.2, // 低温度，减少随机性，提高一致性
     maxTokens: 1024, // 最大输出 token 数
     openAIApiKey: apiKey, // 正确的属性名是 openAIApiKey，而不是 apiKey
@@ -41,9 +41,9 @@ export function getLightLLM(): BaseChatModel {
   // 获取自定义 API 基础 URL（如果有）
   const baseURL = process.env.OPENAI_BASE_URL;
 
-  // 创建 ChatOpenAI 实例，使用 gpt-3.5-turbo 模型
+  // 创建 ChatOpenAI 实例，使用 gemini-2.5-flash-lite 模型
   return new ChatOpenAI({
-    modelName: 'gpt-3.5-turbo',
+    modelName: 'gemini-2.5-flash-lite',
     temperature: 0.1,
     maxTokens: 512,
     openAIApiKey: apiKey, // 正确的属性名是 openAIApiKey
