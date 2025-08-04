@@ -27,12 +27,12 @@ export const GRAMMAR_PROMPT = new PromptTemplate({
 ${baseTemplate}
 类型：语法错误
 示例：
-原始文本：我昨天买一个苹果。
+原始文本：我昨天买一棵苹果。
 返回：
 [
   {{
     "type": "grammar",
-    "text": "一个苹果",
+    "text": "一棵苹果",
     "start": 4,
     "end": 8,
     "suggestion": "一个苹果",
