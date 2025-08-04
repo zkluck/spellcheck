@@ -1,0 +1,35 @@
+{
+  "name": "spellcheck",
+  "version": "1.0.0",
+  "description": "检测中文文本的语法，拼写，标点符号，重复等错误的网站",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.1.17",
+    "@langchain/openai": "^0.0.14",
+    "classnames": "^2.3.2",
+    "langchain": "^0.1.25",
+    "next": "14.0.4",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-feather": "^2.0.10",
+    "sass": "^1.69.5"
+  },
+  "devDependencies": {
+    "@types/classnames": "^2.3.1",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.0.4",
+    "typescript": "^5"
+  },
+  "author": "",
+  "license": "ISC"
+}
