@@ -9,6 +9,13 @@
   flex-direction: column;
 }
 
+.result-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
 .result-panel--loading,
 .result-panel--empty {
   justify-content: center;
@@ -43,6 +50,37 @@
   font-weight: 600;
   margin-bottom: 16px;
   color: #333;
+}
+
+.result-panel__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-panel__action-button {
+  font-size: 12px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.result-panel__action-button--primary {
+  background-color: #28a745;
+  color: #fff;
+}
+
+.result-panel__action-button--primary:hover {
+  background-color: #218838;
+}
+
+.result-panel__action-button--secondary {
+  background-color: #6c757d;
+  color: #fff;
+}
+
+.result-panel__action-button--secondary:hover {
+  background-color: #5a6268;
 }
 
 .result-panel__error-list {
@@ -89,6 +127,25 @@
 .error-item__type--punctuation { background-color: #17a2b8; }
 .error-item__type--repetition { background-color: #6f42c1; }
 
+.error-item__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.error-item__ignore-button {
+  font-size: 12px;
+  padding: 4px 10px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.error-item__ignore-button:hover {
+  background-color: #5a6268;
+}
+
 .error-item__apply-button {
   font-size: 12px;
   padding: 4px 10px;
@@ -122,4 +179,43 @@
   font-size: 12px;
   color: #666;
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.error-item__explanation-label {
+  font-weight: 600;
+  color: #444;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.error-item__explanation-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.error-item__explanation-text--clamped {
+  display: -webkit-box;
+  line-clamp: 1; // standard property for compatibility
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.error-item__explanation-toggle {
+  margin-left: auto;
+  font-size: 12px;
+  color: #007bff;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.error-item__explanation-toggle:hover {
+  text-decoration: underline;
 }

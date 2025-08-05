@@ -18,7 +18,8 @@ export function getLLM(): BaseChatModel {
 
   // 创建 ChatOpenAI 实例，使用 gpt-4 模型
   return new ChatOpenAI({
-    modelName: 'Doubao-vision-pro-32k',
+    modelName: 'Doubao-1.5-lite-32k',
+    // modelName: 'qwen/qwen3-235b-a22b:free',
     temperature: 0.2, // 低温度，减少随机性，提高一致性
     maxTokens: 1024, // 最大输出 token 数
     openAIApiKey: apiKey, // 正确的属性名是 openAIApiKey，而不是 apiKey
@@ -43,7 +44,7 @@ export function getLightLLM(): BaseChatModel {
 
   // 创建 ChatOpenAI 实例，使用 gpt-4 模型
   return new ChatOpenAI({
-    modelName: 'Doubao-vision-pro-32k',
+    modelName: 'qwen-turbo',
     temperature: 0.1,
     maxTokens: 512,
     openAIApiKey: apiKey, // 正确的属性名是 openAIApiKey

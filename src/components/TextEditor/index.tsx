@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import classnames from 'classnames/bind';
 import { ErrorItem } from '@/types/error';
 import styles from './index.module.scss';
@@ -26,6 +26,28 @@ export default function TextEditor({
   activeErrorId,
   onSelectError,
 }: TextEditorProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        // 兼容性处理：创建临时文本区域复制
+        const temp = document.createElement('textarea');
+        temp.value = value;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Copy failed:', e);
+    }
+  }, [value]);
 
   const renderWithHighlight = useMemo(() => {
     if (errors.length === 0) {
@@ -82,6 +104,14 @@ export default function TextEditor({
       </div>
       <div className={cn('text-editor__info')}>
         <span className={cn('text-editor__char-count')}>{value.length} 字符</span>
+        <button
+          type="button"
+          className={cn('text-editor__copy-button')}
+          onClick={handleCopy}
+          aria-label="复制文本"
+        >
+          {copied ? '已复制' : '复制'}
+        </button>
       </div>
     </div>
   );

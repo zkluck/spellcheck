@@ -15,6 +15,7 @@ export default function Home() {
   const [errors, setErrors] = useState<ErrorItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeErrorId, setActiveErrorId] = useState<string | null>(null);
+  const [history, setHistory] = useState<{ text: string; errors: ErrorItem[] }[]>([]);
 
   const handleTextChange = useCallback((newText: string) => {
     setText(newText);
@@ -63,6 +64,8 @@ export default function Home() {
   }, [text, isLoading]);
 
   const handleApplyError = useCallback((errorToApply: ErrorItem) => {
+    // 保存历史以支持撤回
+    setHistory(prev => [...prev, { text, errors }]);
     // 最终解决方案：前端即时计算与重新索引
     const { text: errorText, suggestion, id } = errorToApply;
     const newStartIndex = text.indexOf(errorText);
@@ -101,7 +104,43 @@ export default function Home() {
       console.warn(`Could not find error text "${errorText}" in the current text.`);
       setErrors(currentErrors => currentErrors.filter(e => e.id !== id));
     }
-  }, [text]);
+  }, [text, errors]);
+
+  const handleIgnoreError = useCallback((errorToIgnore: ErrorItem) => {
+    // 保存历史以支持撤回
+    setHistory(prev => [...prev, { text, errors }]);
+    const { id } = errorToIgnore;
+    setErrors(currentErrors => currentErrors.filter(e => e.id !== id));
+    setActiveErrorId(prev => (prev === id ? null : prev));
+  }, [text, errors]);
+
+  const handleApplyAll = useCallback(() => {
+    if (errors.length === 0) return;
+    // 保存历史以支持撤回
+    setHistory(prev => [...prev, { text, errors }]);
+    // 逐条应用，基于逐次文本累积
+    let newText = text;
+    errors.forEach(err => {
+      const idx = newText.indexOf(err.text);
+      if (idx !== -1) {
+        newText = newText.substring(0, idx) + err.suggestion + newText.substring(idx + err.text.length);
+      }
+    });
+    setText(newText);
+    setErrors([]);
+    setActiveErrorId(null);
+  }, [text, errors]);
+
+  const handleUndo = useCallback(() => {
+    setHistory(prev => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setText(last.text);
+      setErrors(last.errors);
+      setActiveErrorId(null);
+      return prev.slice(0, -1);
+    });
+  }, []);
 
   return (
     <main className={cn('home__main')}>
@@ -123,6 +162,11 @@ export default function Home() {
       <ResultPanel
         errors={errors}
         onApplyError={handleApplyError}
+        onIgnoreError={handleIgnoreError}
+        onApplyAll={handleApplyAll}
+        onUndo={handleUndo}
+        canUndo={history.length > 0}
+        canApplyAll={errors.length > 0}
         activeErrorId={activeErrorId}
         onSelectError={setActiveErrorId}
         isLoading={isLoading}
