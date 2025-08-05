@@ -23,13 +23,13 @@
   border-radius: 6px;
   cursor: pointer;
   transition: background-color 0.2s;
+}
 
-  &:hover {
-    background-color: #0056b3;
-  }
+.control-bar__check-button:hover {
+  background-color: #0056b3;
+}
 
-  &:disabled {
-    background-color: #a0c7ff;
-    cursor: not-allowed;
-  }
+.control-bar__check-button:disabled {
+  background-color: #a0c7ff;
+  cursor: not-allowed;
 }

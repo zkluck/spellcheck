@@ -6,6 +6,7 @@ import { PunctuationAgent } from '@/lib/langchain/agents/punctuation/Punctuation
 import { RepetitionAgent } from '@/lib/langchain/agents/repetition/RepetitionAgent';
 import { IntegrationAgent } from '@/lib/langchain/agents/integration/IntegrationAgent';
 import { z } from 'zod';
+import { logger } from '@/lib/logger';
 
 // 定义 CoordinatorAgent 的输入结构
 const CoordinatorAgentInputSchema = z.object({
@@ -56,8 +57,16 @@ export class CoordinatorAgent {
       promises.push(this.repetitionAgent.call({ text }));
     }
 
-    // 等待所有选中的智能体完成
-    let rawResults = await Promise.all(promises);
+    // 等待所有选中的智能体完成（允许部分失败）
+    const settled = await Promise.allSettled(promises);
+    const rawResults: AgentResponse[] = [];
+    settled.forEach((res, idx) => {
+      if (res.status === 'fulfilled') {
+        rawResults.push(res.value);
+      } else {
+        logger.warn('Agent failed', { index: idx, reason: (res.reason as Error)?.message });
+      }
+    });
 
     // 提取所有错误项到一个数组中
     const allErrors = rawResults.map((result) => result.result);

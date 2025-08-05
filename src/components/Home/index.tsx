@@ -48,8 +48,13 @@ export default function Home() {
         throw new Error(`API request failed with status ${response.status}`);
       }
 
-      const result: ErrorItem[] = await response.json();
-      setErrors(result);
+      const result: { errors: ErrorItem[]; meta?: { elapsedMs: number; enabledTypes: string[] } } = await response.json();
+      if (result?.meta) {
+        // 仅调试用途，可在后续接入 UI 呈现耗时与配置
+        // eslint-disable-next-line no-console
+        console.log('Check meta:', result.meta);
+      }
+      setErrors(result.errors ?? []);
     } catch (error) {
       console.error('Failed to check text:', error);
     } finally {

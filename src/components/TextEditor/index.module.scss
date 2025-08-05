@@ -38,10 +38,10 @@
   color: transparent;
   caret-color: #333;
   resize: none;
+}
 
-  &:focus {
-    outline: none;
-  }
+.text-editor__input:focus {
+  outline: none;
 }
 
 .text-editor__backdrop {

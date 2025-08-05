@@ -19,9 +19,14 @@
 
 ## 技术栈
 
-- **前端**：Next.js + TypeScript + SCSS
-- **后端**：Next.js API Routes
-- **AI 模型**：LangChain 多智能体架构
+- **前端**：Next.js 14 + React 18 + TypeScript 5 + SCSS（BEM 规范，无 & 嵌套）
+- **后端**：Next.js App Router API Routes（Node 环境）
+- **AI**：LangChain 0.1.x 多智能体（语法/拼写/标点/重复）
+- **运行时校验**：Zod（API 入参与出参严格校验）
+- **日志**：结构化 logger（`src/lib/logger.ts`）
+- **配置**：统一配置模块（`src/lib/config.ts`，支持 .env）
+- **测试**：Vitest（单元 tests/unit 与集成 tests/integration）
+- **质量**：Husky + lint-staged（提交前 lint 和类型检查）
 
 ## 安装与运行
 
@@ -53,8 +58,15 @@ yarn install
 创建`.env.local`文件并添加以下内容：
 
 ```
+# OpenAI 相关
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_BASE_URL=your_openai_base_url
+
+# LangChain/分析配置
+ANALYZE_TIMEOUT_MS=8000   # analyzeText 超时（毫秒）
+
+# API 速率限制（如未启用可忽略）
+API_RATE_LIMIT=60
 ```
 
 4. 启动开发服务器
@@ -83,6 +95,51 @@ yarn dev
 - `Tab`：在检测结果之间切换
 - `Enter`：应用当前选中的修正建议
 
+## API 契约
+
+- 路径：`POST /api/check`
+- 请求体（Zod 校验）：
+
+```json
+{
+  "text": "需要检查的文本",
+  "options": {
+    "enabledTypes": ["grammar", "spelling", "punctuation", "repetition"]
+  }
+}
+```
+
+- 成功响应：
+
+```json
+{
+  "errors": [
+    {
+      "id": "string",
+      "start": 0,
+      "end": 5,
+      "text": "错误片段",
+      "suggestion": "建议",
+      "type": "grammar",
+      "explanation": "可选解释"
+    }
+  ],
+  "meta": {
+    "elapsedMs": 123,
+    "enabledTypes": ["grammar", "spelling"]
+  }
+}
+```
+
+- 失败响应示例（参数不合法）：
+
+```json
+{
+  "error": "请求参数不合法",
+  "details": {}
+}
+```
+
 ## 部署
 
 本项目可以部署到 Vercel、Netlify 等支持 Next.js 的平台：
@@ -104,25 +161,34 @@ yarn start
 ```
 spellcheck/
 ├── src/
-│   ├── app/               # Next.js应用目录
-│   │   ├── api/           # API路由
-│   │   │   └── check/     # 文本检测API
-│   │   ├── globals.scss   # 全局样式
-│   │   ├── layout.tsx     # 布局组件
-│   │   └── page.tsx       # 主页面
-│   ├── components/        # 组件目录
-│   │   ├── ControlBar/    # 控制栏组件
-│   │   ├── Home/          # 主页组件
-│   │   ├── ResultPanel/   # 结果面板组件
-│   │   ├── ShortcutHint/  # 快捷键提示组件
-│   │   └── TextEditor/    # 文本编辑器组件
-│   ├── lib/               # 工具库
-│   │   └── agents/        # 智能体实现
-│   └── types/             # TypeScript类型定义
-├── .env.local             # 环境变量
-├── next.config.js         # Next.js配置
-├── package.json           # 项目依赖
-└── tsconfig.json          # TypeScript配置
+│   ├── app/                    # Next.js 应用目录
+│   │   ├── api/
+│   │   │   └── check/          # 文本检测 API（入参与出参 Zod 校验）
+│   │   ├── globals.scss        # 全局样式（BEM 规范）
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── components/             # 组件目录（BEM 命名、无 & 嵌套）
+│   │   ├── ControlBar/
+│   │   ├── Home/
+│   │   ├── ResultPanel/
+│   │   ├── ShortcutHint/
+│   │   └── TextEditor/
+│   ├── lib/
+│   │   ├── config.ts           # 统一配置（读取 .env）
+│   │   ├── logger.ts           # 结构化日志
+│   │   └── langchain/
+│   │       ├── index.ts        # analyzeText（超时保护、结构化日志）
+│   │       ├── merge.ts        # 错误合并策略
+│   │       └── agents/         # 多智能体实现
+│   └── types/                  # 类型定义（ErrorItem/AnalyzeOptions 等）
+├── tests/
+│   ├── unit/                   # 单元测试（Vitest）
+│   └── integration/            # 集成测试（含 /api/check）
+├── .env.example                # 环境变量示例
+├── next.config.js              # Next.js 配置
+├── package.json                # 项目依赖与脚本
+├── tsconfig.json               # TypeScript 配置
+└── vitest.config.ts            # Vitest 配置
 ```
 
 ## 扩展与定制

@@ -1,10 +1,8 @@
 import { CoordinatorAgent } from '@/lib/langchain/agents/coordinator/CoordinatorAgent';
 import { ErrorItem } from '@/types/error';
-
-// 定义 analyzeText 函数的选项结构
-interface AnalyzeOptions {
-  enabledTypes: Array<'grammar' | 'spelling' | 'punctuation' | 'repetition'>;
-}
+import { AnalyzeOptions } from '@/types/agent';
+import { logger } from '@/lib/logger';
+import { config } from '@/lib/config';
 
 const coordinator = new CoordinatorAgent();
 
@@ -20,10 +18,32 @@ export async function analyzeText(text: string, options: AnalyzeOptions): Promis
   }
 
   try {
-    const result = await coordinator.call({ text, options });
+    const startedAt = Date.now();
+    logger.info('analyzeText:start', { enabledTypes: options.enabledTypes, textLength: text.length });
+
+    // 超时保护：从配置中读取超时阈值
+    const TIMEOUT_MS = config.langchain.analyzeTimeoutMs;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const id = setTimeout(() => {
+        clearTimeout(id);
+        reject(new Error(`analyzeText timeout after ${TIMEOUT_MS}ms`));
+      }, TIMEOUT_MS);
+    });
+
+    const result = await Promise.race([
+      coordinator.call({ text, options }),
+      timeoutPromise,
+    ]) as { result: ErrorItem[] };
+
+    const elapsedMs = Date.now() - startedAt;
+    logger.info('analyzeText:done', { 
+      elapsedMs, 
+      resultCount: result.result?.length ?? 0,
+      timeoutMs: TIMEOUT_MS
+    });
     return result.result;
   } catch (error) {
-    console.error('在 analyzeText 中捕获到未处理的错误:', error);
+    logger.error('analyzeText:error', { error: (error as Error)?.message });
     return [];
   }
 }
