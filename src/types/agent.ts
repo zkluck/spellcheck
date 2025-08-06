@@ -5,6 +5,8 @@ import { ErrorItem } from './error';
  */
 export interface AgentResponse {
   result: ErrorItem[];
+  rawOutput?: string; // 原始 LLM 输出，用于调试
+  error?: string; // 错误信息，用于调试
 }
 
 /**
@@ -26,5 +28,5 @@ export interface TextSegment {
  * 分析选项（供 analyzeText 与各 Agent 使用）
  */
 export interface AnalyzeOptions {
-  enabledTypes: Array<'grammar' | 'spelling' | 'punctuation' | 'repetition'>;
+  enabledTypes: Array<'spelling' | 'punctuation' | 'grammar' | 'fluency'>;
 }

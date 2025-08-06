@@ -84,8 +84,8 @@ export default function ResultPanel({
         return '拼写';
       case 'punctuation':
         return '标点';
-      case 'repetition':
-        return '重复';
+      case 'fluency':
+        return '流畅';
       default:
         return '其他';
     }
@@ -99,8 +99,8 @@ export default function ResultPanel({
         return '检测到疑似错别字或同音/近形混淆，请参考建议用词进行纠正。';
       case 'punctuation':
         return '标点符号使用可能不规范，如多余/缺失/全角半角混用等，建议按提示修正。';
-      case 'repetition':
-        return '相邻或近邻位置存在重复或冗余表述，建议精简以提升可读性。';
+      case 'fluency':
+        return '存在重复、赘余或不够通顺的表述，建议精简或优化以提升可读性与流畅度。';
       default:
         return '检测到潜在问题，请参考建议。';
     }

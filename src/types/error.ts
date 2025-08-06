@@ -10,7 +10,7 @@ export const ErrorItemSchema = z.object({
   end: z.number(),
   text: z.string(),
   suggestion: z.string(),
-  type: z.enum(['grammar', 'spelling', 'punctuation', 'repetition', 'conflict', 'other']),
+  type: z.enum(['spelling', 'punctuation', 'grammar', 'fluency']),
   explanation: z.string().optional(),
   metadata: z.record(z.any()).optional(), // For extra data like mergedFrom
 });

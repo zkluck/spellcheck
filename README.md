@@ -1,15 +1,13 @@
 # 中文文本检测系统
 
-这是一个基于 Next.js 和 LangChain 多智能体架构构建的中文文本检测系统，可以帮助用户检测并修正文本中的语法、拼写、标点和重复问题。
+这是一个基于 Next.js 和 LangChain 双智能体架构构建的中文文本检测系统，可以帮助用户检测并修正文本中的语法、拼写、标点和流畅（表达优化）问题。
 
 ## 功能特点
 
-- **多智能体检测**：系统集成了四种专业智能体，分别负责检测不同类型的文本问题
+- **多智能体检测**：系统集成了两种专业智能体，分别负责检测不同类型的文本问题
 
-  - 语法智能体：检测语法错误
-  - 拼写智能体：检测拼写错误
-  - 标点智能体：检测标点符号使用错误
-  - 重复检测智能体：检测文本中的重复内容
+  - 基础错误智能体（BasicErrorAgent）：检测拼写、标点、基础语法等客观错误
+  - 流畅智能体（FluentAgent）：检测语义通顺、冗余重复与表达优化问题
 
 - **实时编辑**：用户可以在编辑器中直接输入文本，并获得即时的检测结果
 
@@ -21,7 +19,7 @@
 
 - **前端**：Next.js 14 + React 18 + TypeScript 5 + SCSS（BEM 规范，无 & 嵌套）
 - **后端**：Next.js App Router API Routes（Node 环境）
-- **AI**：LangChain 0.1.x 多智能体（语法/拼写/标点/重复）
+- **AI**：LangChain 0.1.x 双智能体（基础错误：拼写/标点/语法；流畅：冗余/通顺/表达优化）
 - **运行时校验**：Zod（API 入参与出参严格校验）
 - **日志**：结构化 logger（`src/lib/logger.ts`）
 - **配置**：统一配置模块（`src/lib/config.ts`，支持 .env）
@@ -104,7 +102,7 @@ yarn dev
 {
   "text": "需要检查的文本",
   "options": {
-    "enabledTypes": ["grammar", "spelling", "punctuation", "repetition"]
+    "enabledTypes": ["grammar", "spelling", "punctuation", "fluency"]
   }
 }
 ```
@@ -195,7 +193,7 @@ spellcheck/
 
 ### 添加新的检测智能体
 
-1. 在`src/lib/agents`目录下创建新的智能体实现
+1. 在`src/lib/langchain/agents`目录下创建新的智能体实现
 2. 在 API 路由中注册新智能体
 3. 在前端界面中添加对应的选项和显示逻辑
 

@@ -29,20 +29,69 @@ const RawLLMErrorSchema = z
 
 export type RawLLMError = z.infer<typeof RawLLMErrorSchema>;
 
+// 使用栈扫描提取首个顶层 JSON 数组，避免贪婪正则导致跨段匹配
+function findFirstTopLevelJsonArray(s: string): string | null {
+  let inString = false;
+  let stringQuote: '"' | "'" | null = null;
+  let escape = false;
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === stringQuote) {
+        inString = false;
+        stringQuote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringQuote = ch as '"' | "'";
+      continue;
+    }
+    if (ch === '[') {
+      if (depth === 0) start = i;
+      depth++;
+      continue;
+    }
+    if (ch === ']') {
+      if (depth > 0) depth--;
+      if (depth === 0 && start !== -1) {
+        return s.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
 // 从多种 content 形态中提取 JSON 数组字符串
 function extractJsonArrayString(raw: unknown): string | null {
   if (typeof raw === 'string') {
     const s = raw.trim();
     // 优先匹配 ```json 代码块
-    const fenced = s.match(/```json\n([\s\S]*?)```/i);
+    const fenced = s.match(/```json\s*\n([\s\S]*?)```/i);
     if (fenced && fenced[1]) return fenced[1].trim();
+
+    // 其次匹配任意代码块 ``` ... ```
+    const anyFenced = s.match(/```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)```/);
+    if (anyFenced && anyFenced[1]) {
+      const inner = anyFenced[1].trim();
+      if (inner.startsWith('[') && inner.endsWith(']')) return inner;
+      const arr = findFirstTopLevelJsonArray(inner);
+      if (arr) return arr;
+    }
 
     // 直接就是 JSON 数组
     if (s.startsWith('[') && s.endsWith(']')) return s;
 
-    // 尝试提取首个数组片段
-    const firstArray = s.match(/\[[\s\S]*\]/);
-    if (firstArray) return firstArray[0];
+    // 使用平衡括号扫描首个顶层数组
+    const firstArray = findFirstTopLevelJsonArray(s);
+    if (firstArray) return firstArray;
 
     return null;
   }
@@ -71,7 +120,14 @@ export function extractJsonArrayFromContent(content: unknown): unknown[] {
     const parsed = JSON.parse(jsonString);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return [];
+    // 二次尝试：移除尾随逗号后重试（常见生成错误）
+    try {
+      const sanitized = jsonString.replace(/,\s*([}\]])/g, '$1');
+      const parsed2 = JSON.parse(sanitized);
+      return Array.isArray(parsed2) ? parsed2 : [];
+    } catch {
+      return [];
+    }
   }
 }
 
@@ -84,11 +140,12 @@ function sliceMatches(original: string, start: number, end: number, text: string
 export function toErrorItems(
   rawItems: unknown[],
   opts: {
-    enforcedType: 'grammar' | 'spelling' | 'punctuation' | 'repetition';
+    enforcedType: 'grammar' | 'spelling' | 'punctuation' | 'fluency';
     originalText?: string;
+    allowLocateByTextUnique?: boolean; // 当索引不一致且文本在原文中仅出现一次时，允许回退定位
   }
 ): ErrorItem[] {
-  const { enforcedType, originalText } = opts;
+  const { enforcedType, originalText, allowLocateByTextUnique = true } = opts;
 
   const items: ErrorItem[] = [];
   for (const it of rawItems) {
@@ -98,6 +155,23 @@ export function toErrorItems(
 
     // 索引与原文二次校验，不一致则丢弃
     if (!sliceMatches(originalText ?? '', start, end, text)) {
+      // 可选回退：若文本在原文中仅出现一次，则按唯一出现位置修正索引
+      if (allowLocateByTextUnique && originalText) {
+        const first = originalText.indexOf(text);
+        if (first !== -1 && first === originalText.lastIndexOf(text)) {
+          const s = first;
+          const e = first + text.length;
+          items.push({
+            id: uuidv4(),
+            text,
+            start: s,
+            end: e,
+            suggestion,
+            type: enforcedType,
+            explanation: description ?? explanation ?? '',
+          } as ErrorItem);
+        }
+      }
       continue;
     }
 

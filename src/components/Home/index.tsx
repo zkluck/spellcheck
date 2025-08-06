@@ -40,7 +40,7 @@ export default function Home() {
           text,
           options: {
             // Enable all agent types
-            enabledTypes: ['grammar', 'spelling', 'punctuation', 'repetition'],
+            enabledTypes: ['grammar', 'spelling', 'punctuation', 'fluency'],
           },
         }),
       });

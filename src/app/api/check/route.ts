@@ -9,7 +9,7 @@ export async function POST(request: Request) {
 
     // 入参校验
     const OptionsSchema = z.object({
-      enabledTypes: z.array(z.enum(['grammar', 'spelling', 'punctuation', 'repetition'])).nonempty(),
+      enabledTypes: z.array(z.enum(['grammar', 'spelling', 'punctuation', 'fluency'])).nonempty(),
     });
     const BodySchema = z.object({
       text: z.string().min(1, 'text 不能为空'),

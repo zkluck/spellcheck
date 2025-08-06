@@ -11,7 +11,7 @@ function e(partial: Partial<ErrorItem>): ErrorItem {
     end: partial.end ?? 1,
     text: partial.text ?? 'x',
     suggestion: partial.suggestion ?? 'x',
-    type: partial.type ?? 'other',
+    type: partial.type ?? 'grammar',
     explanation: partial.explanation,
     metadata: partial.metadata,
   };
@@ -34,9 +34,9 @@ describe('mergeErrors', () => {
     const b = e({ id: 'b', start: 0, end: 3, text: '今天天' });
     const res = mergeErrors(text, [[a], [b]]);
     expect(res.length).toBe(1);
-    expect(res[0].id).toBe('b');
+    expect(res[0].id).toBe('a');
     expect(res[0].start).toBe(0);
-    expect(res[0].end).toBe(3);
+    expect(res[0].end).toBe(2);
   });
 
   it('keeps order and merges non-overlapping', () => {

@@ -21,26 +21,66 @@ function flattenAndValidate(text: string, groups: ErrorItem[][]): ErrorItem[] {
 }
 
 /**
- * 基于区间与文本内容去重
+ * 基于区间与文本内容去重（跨类型去重），并按优先级选择最佳项
  */
 function dedupe(items: ErrorItem[]): ErrorItem[] {
-  const seen = new Set<string>();
-  const out: ErrorItem[] = [];
+  const groups = new Map<string, ErrorItem[]>();
   for (const e of items) {
-    const key = `${e.start}:${e.end}:${e.text}:${e.type}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(e);
-    }
+    const key = `${e.start}:${e.end}:${e.text}`; // 不含 type，跨类型聚合
+    const arr = groups.get(key) ?? [];
+    arr.push(e);
+    groups.set(key, arr);
   }
+
+  const pickBest = (arr: ErrorItem[]): ErrorItem => {
+    const typeOrder = ['spelling', 'punctuation', 'grammar', 'fluency'];
+    const prio = (t: ErrorItem['type']): number => {
+      return typeOrder.indexOf(t);
+    };
+    const explLen = (e: ErrorItem) => (e.explanation?.trim().length ?? 0);
+    // 选择：类型优先级 > explanation 长度 > 原顺序
+    return arr.reduce((best, cur) => {
+      if (!best) return cur;
+      const pBest = prio(best.type);
+      const pCur = prio(cur.type);
+      if (pCur !== pBest) return pCur > pBest ? cur : best;
+      const eBest = explLen(best);
+      const eCur = explLen(cur);
+      if (eCur !== eBest) return eCur > eBest ? cur : best;
+      return best; // 保持稳定性
+    });
+  };
+
+  const out: ErrorItem[] = [];
+  // 使用 forEach 以避免对 Map 的迭代要求 ES2015 downlevelIteration
+  groups.forEach((arr) => {
+    out.push(pickBest(arr));
+  });
   return out;
 }
 
 /**
- * 解决重叠冲突：优先保留覆盖范围更大的项
+ * 解决重叠冲突：优先保留更精细（更短、更贴近）的项；
+ * 若长度相同：按信息质量（explanation 长度）再按类型优先级。
  */
 function resolveOverlaps(sorted: ErrorItem[]): ErrorItem[] {
   if (sorted.length === 0) return [];
+  const prio = (t: ErrorItem['type']): number => {
+    switch (t) {
+      case 'spelling':
+        return 4;
+      case 'punctuation':
+        return 3;
+      case 'grammar':
+        return 2;
+      case 'fluency':
+        return 1;
+      default:
+        return 0;
+    }
+  };
+  const explLen = (e: ErrorItem) => (e.explanation?.trim().length ?? 0);
+
   const res: ErrorItem[] = [];
   let last = { ...sorted[0] };
 
@@ -49,10 +89,23 @@ function resolveOverlaps(sorted: ErrorItem[]): ErrorItem[] {
     if (cur.start < last.end) {
       const lastLen = last.end - last.start;
       const curLen = cur.end - cur.start;
-      if (curLen > lastLen) {
-        last = cur;
+      if (curLen !== lastLen) {
+        // 保留更短的（更精细）
+        last = curLen < lastLen ? cur : last;
       } else {
-        // 保留 last（更长或相等）
+        const eBest = explLen(last);
+        const eCur = explLen(cur);
+        if (eCur !== eBest) {
+          last = eCur > eBest ? cur : last;
+        } else {
+          const pBest = prio(last.type);
+          const pCur = prio(cur.type);
+          if (pCur !== pBest) {
+            last = pCur > pBest ? cur : last;
+          } else {
+            // 仍无法判定，保持先到者（稳定性）
+          }
+        }
       }
     } else {
       res.push(last);
