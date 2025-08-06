@@ -165,14 +165,13 @@ spellcheck/
 │   │   ├── globals.scss        # 全局样式（BEM 规范）
 │   │   ├── layout.tsx
 │   │   └── page.tsx
-│   ├── components/             # 组件目录（BEM 命名、无 & 嵌套）
-│   │   ├── ControlBar/
-│   │   ├── Home/
-│   │   ├── ResultPanel/
-│   │   ├── ShortcutHint/
-│   │   └── TextEditor/
-│   ├── lib/
-│   │   ├── config.ts           # 统一配置（读取 .env）
+ │   ├── components/             # 组件目录（BEM 命名、无 & 嵌套）
+ │   │   ├── ControlBar/
+ │   │   ├── Home/
+ │   │   ├── ResultPanel/
+ │   │   └── TextEditor/
+ │   ├── lib/
+ │   │   ├── config.ts           # 统一配置（读取 .env）
 │   │   ├── logger.ts           # 结构化日志
 │   │   └── langchain/
 │   │       ├── index.ts        # analyzeText（超时保护、结构化日志）
@@ -194,7 +193,7 @@ spellcheck/
 ### 添加新的检测智能体
 
 1. 在`src/lib/langchain/agents`目录下创建新的智能体实现
-2. 在 API 路由中注册新智能体
+2. 在 `src/lib/langchain/agents/coordinator/CoordinatorAgent.ts` 中接入新智能体（根据 `enabledTypes` 决定是否调用）
 3. 在前端界面中添加对应的选项和显示逻辑
 
 ### 自定义检测规则
