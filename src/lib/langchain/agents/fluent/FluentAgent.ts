@@ -5,6 +5,8 @@ import { getLLM } from '@/lib/langchain/models/llm-config';
 import { z } from 'zod';
 import { extractJsonArrayFromContent, toErrorItems } from '@/lib/langchain/utils/llm-output';
 import { PromptTemplate } from '@langchain/core/prompts';
+import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
+import { logger } from '@/lib/logger';
 
 // 定义 FluentAgent 的输入结构
 const FluentAgentInputSchema = z.object({
@@ -82,7 +84,12 @@ export class FluentAgent extends BaseAgent<FluentAgentInput> {
 
     try {
       const formattedPrompt = await FLUENT_PROMPT.format({ text: input.text });
-      const response = await llm.invoke(formattedPrompt);
+      const response = await guardLLMInvoke(
+        (signal) => llm.invoke(formattedPrompt as unknown as string, { signal } as any),
+        {
+          operationName: 'FluentAgent.llm',
+        }
+      );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
       
       // 统一解析 LLM 输出
@@ -98,7 +105,7 @@ export class FluentAgent extends BaseAgent<FluentAgentInput> {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('FluentAgent: 调用 LLM 时出错', error);
+      logger.error('FluentAgent.invoke.error', { error: errorMessage });
       return { 
         result: [],
         error: errorMessage
