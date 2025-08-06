@@ -4,7 +4,7 @@ import { ErrorItem } from '@/types/error';
 import { getLLM } from '@/lib/langchain/models/llm-config';
 import { REPETITION_PROMPT } from '@/lib/langchain/models/prompt-templates';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
+import { extractJsonArrayFromContent, toErrorItems } from '@/lib/langchain/utils/llm-output';
 
 // 定义 RepetitionAgent 的输入结构
 const RepetitionAgentInputSchema = z.object({
@@ -27,25 +27,12 @@ export class RepetitionAgent extends BaseAgent<RepetitionAgentInput> {
     try {
       const formattedPrompt = await REPETITION_PROMPT.format({ text: input.text });
       const response = await llm.invoke(formattedPrompt);
-      const responseText = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-
-      // 尝试从 LLM 的响应中解析 JSON
-      let errors: Omit<ErrorItem, 'id'>[] = [];
-      try {
-        const jsonMatch = responseText.match(/```json\n([\s\S]*?)```/);
-        const jsonString = jsonMatch ? jsonMatch[1].trim() : responseText;
-        errors = JSON.parse(jsonString);
-      } catch (e) {
-        console.error('RepetitionAgent: 解析 LLM 响应失败', e);
-        return { result: [] };
-      }
-
-      // 为每个错误添加唯一的 ID 和类型
-      const processedErrors: ErrorItem[] = errors.map(error => ({
-        ...error,
-        id: uuidv4(),
-        type: 'repetition',
-      }));
+      // 统一解析与校验 LLM 输出
+      const rawItems = extractJsonArrayFromContent(response.content);
+      const processedErrors: ErrorItem[] = toErrorItems(rawItems, {
+        enforcedType: 'repetition',
+        originalText: input.text,
+      });
 
       return { result: processedErrors };
     } catch (error) {
