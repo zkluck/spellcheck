@@ -1,24 +1,126 @@
 .home__main {
+  position: relative;
   display: flex;
-  gap: 20px;
-  padding: 20px;
-  height: calc(100vh - 80px); // Assuming a header height of 80px
-  background-color: #f7f7f7;
+  /* 视口高度兼容：先提供通用 vh，再覆盖为 svh/lvh/dvh */
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100lvh;
+  min-height: 100dvh;
+  padding: 32px 20px;
+  background: #000000;
+  overflow: hidden; /* 让发光层不外溢 */
+}
+
+.home__main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 24px 24px, 24px 24px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 轻量动态霓虹光晕层（科技感） */
+.home__main::after {
+  content: '';
+  position: absolute;
+  left: -10%;
+  top: -25%;
+  width: 120%;
+  height: 150%;
+  background: conic-gradient(from 200deg at 70% 40%,
+              rgba(14,165,233,0.18), rgba(99,102,241,0.18), rgba(168,85,247,0.18), rgba(34,211,238,0.18), rgba(14,165,233,0.18));
+  filter: blur(60px);
+  opacity: 0.6;
+  animation: home-glow-spin 40s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.home__container {
+  position: relative;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 1280px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0; /* 允许子元素在flex容器中正确收缩 */
+  z-index: 1; /* 盖在背景与光晕层之上 */
 }
 
 .home__error-banner {
   width: 100%;
-  margin-bottom: 12px;
+  margin: 0 auto 14px auto;
   padding: 10px 12px;
-  background-color: #fff3cd; /* warning bg */
-  color: #856404; /* warning text */
-  border: 1px solid #ffeeba;
-  border-radius: 6px;
+  background: #fffbea;
+  color: #7a5d00;
+  border: 1px solid #ffe8a1;
+  border-radius: 5px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.05);
+}
+
+.home__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 20px;
+  flex: 1;       /* 占满剩余高度 */
+  min-height: 0; /* 避免子项溢出时撑破布局 */
 }
 
 .home__editor-section {
-  flex: 2;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.home__title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 4px 0 16px 2px;
+  background: linear-gradient(90deg, #0ea5e9, #6366f1 50%, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (max-width: 1024px) {
+  .home__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 暗色模式 */
+@media (prefers-color-scheme: dark) {
+  .home__main {
+    background: #000000;
+  }
+  .home__main::before {
+    background-image: linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px);
+  }
+  .home__title {
+    background: linear-gradient(90deg, #22d3ee, #60a5fa 50%, #a78bfa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .home__error-banner {
+    background: #2b2200;
+    color: #f4e29b;
+    border-color: #665500;
+  }
+}
+
+/* 降低动画偏好时：保持布局，移除多余特效 */
+@media (prefers-reduced-motion: reduce) {
+  .home__main::before { display: none; }
+  .home__main::after { animation: none; }
+}
+
+@keyframes home-glow-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

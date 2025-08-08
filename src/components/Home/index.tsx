@@ -142,38 +142,43 @@ export default function Home() {
 
   return (
     <main className={cn('home__main')}>
-      {apiError && (
-        <div className={cn('home__error-banner')} role="alert">
-          {apiError}
+      <div className={cn('home__container')}>
+        {apiError && (
+          <div className={cn('home__error-banner')} role="alert">
+            {apiError}
+          </div>
+        )}
+        <h1 className={cn('home__title')}>中文文本检测</h1>
+        <div className={cn('home__layout')}>
+          <div className={cn('home__editor-section')}>
+            <TextEditor
+              value={text}
+              onChange={handleTextChange}
+              errors={errors}
+              activeErrorId={activeErrorId}
+              onSelectError={handleSelectError}
+            />
+            <ControlBar
+              onCheck={handleCheck}
+              isLoading={isLoading}
+              hasErrors={errors.length > 0}
+              textLength={text.length}
+            />
+          </div>
+          <ResultPanel
+            errors={errors}
+            onApplyError={handleApplyError}
+            onIgnoreError={handleIgnoreError}
+            onApplyAll={handleApplyAll}
+            onUndo={handleUndo}
+            canUndo={history.length > 0}
+            canApplyAll={errors.length > 0}
+            activeErrorId={activeErrorId}
+            onSelectError={handleSelectError}
+            isLoading={isLoading}
+          />
         </div>
-      )}
-      <div className={cn('home__editor-section')}>
-        <TextEditor
-          value={text}
-          onChange={handleTextChange}
-          errors={errors}
-          activeErrorId={activeErrorId}
-          onSelectError={handleSelectError}
-        />
-        <ControlBar
-          onCheck={handleCheck}
-          isLoading={isLoading}
-          hasErrors={errors.length > 0}
-          textLength={text.length}
-        />
       </div>
-      <ResultPanel
-        errors={errors}
-        onApplyError={handleApplyError}
-        onIgnoreError={handleIgnoreError}
-        onApplyAll={handleApplyAll}
-        onUndo={handleUndo}
-        canUndo={history.length > 0}
-        canApplyAll={errors.length > 0}
-        activeErrorId={activeErrorId}
-        onSelectError={handleSelectError}
-        isLoading={isLoading}
-      />
     </main>
   );
 }

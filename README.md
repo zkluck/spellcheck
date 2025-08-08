@@ -224,6 +224,39 @@ spellcheck/
 4. 合并 Basic 与 Fluent 的候选，均带 `metadata.source` 标记；若 `reviewer === 'on'`，交由 Reviewer 审阅（accept/reject/modify），否则直接合并返回。
 5. 最终使用 `mergeErrors()` 产出稳定、无冲突的结果列表。
 
+### 智能体 Prompt 规范（关键约束）
+
+#### BasicErrorAgent（基础错误）
+- __检测范围__：
+  - spelling：错别字、同音/近形误用。
+  - punctuation：全角/半角混用、成对标点不匹配、重复或多余标点、类型错误。
+  - grammar：明显量词错误、主谓搭配明显不当、成分残缺/重复（客观可判定）。
+- __排除__：风格/语气/主观优化、需外部知识推断的改写、纯“缺失标点”的插入类修改。
+- __输出__（仅 JSON 数组）：对象字段
+  - `type`: `"spelling" | "punctuation" | "grammar"`
+  - `text`, `start`, `end`, `suggestion`, `description`, `quote`（与 text 一致）, `confidence?`(0~1)
+- __索引/编辑规则__：
+  - UTF-16 计数；`original.slice(start, end) === text`；`end > start`。
+  - 禁止空区间“纯插入”；如需插入，使用相邻的最小可替换片段实现等价插入。
+  - 最小编辑；不做大段重写；避免重叠与重复；数量≤200。
+
+#### FluentAgent（流畅/表达）
+- __检测范围__：语义通顺、语序更顺、常见搭配/用词更地道、重复与冗余精简、表达更清晰（不改变原意、最小编辑）。
+- __排除__：所有基础错误（spelling/punctuation/grammar）、需要上下文推断的改写、风格化/主观改写。
+- __输出__（仅 JSON 数组）：对象字段
+  - `type: "fluency"`
+  - `text`, `start`, `end`, `suggestion`（删除用空字符串）、`description`, `quote`（与 text 一致）, `confidence?`
+- __索引/编辑规则__：与 Basic 相同；尤其禁止空区间“纯插入”，需以最小替换片段等价实现插入；去重与不重叠。
+
+#### ReviewerAgent（审阅裁决）
+- __输入__：Basic/Fluent 合并后的候选（含 `id`）。
+- __决策__：对每个候选按 `id` 逐一 `accept | reject | modify`。
+  - 不得新增候选；仅在提供的 `id` 集合内裁决。
+  - `modify` 必须给出可验证的 `start/end/text/suggestion`（同 UTF-16 校验规则），遵循最小编辑与不重叠；可接受/微调 `fluency`，前提是不改变原意且可读性显著提升。
+- __输出__（仅 JSON 数组）：统一 JSON 对象，字段遵循上述索引与最小编辑规则。
+
+以上三者分工清晰：Basic 负责客观基础错误；Fluent 负责不改变原意的表达优化；Reviewer 进行最终一致性与质量裁决。
+
 ### 合并与优先级策略（`src/lib/langchain/merge.ts`）
 
 - 去重：按 `start:end:text` 聚类，跨类型比较。

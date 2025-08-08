@@ -3,10 +3,14 @@ import { analyzeText } from '@/lib/langchain';
 import type { ErrorItem } from '@/types/error';
 import type { AnalyzeOptions } from '@/types/agent';
 import { mergeErrors } from '@/lib/langchain/merge';
+import styles from './AnalyzerPanel.module.scss';
 
 type AnalyzeOptionsWithReviewer = AnalyzeOptions & { reviewer?: 'on' | 'off' };
 
-type SourceTag = 'basic' | 'fluent';
+type SourceTag = 'basic' | 'fluent' | 'final';
+
+// 轻量级 class 合并
+const cx = (...cls: Array<string | false | null | undefined>) => cls.filter(Boolean).join(' ');
 
 function applySelectedEdits(base: string, edits: ErrorItem[]): string {
   // 使用后端同款合并策略，自动去重与解决重叠
@@ -106,54 +110,86 @@ export const AnalyzerPanel: React.FC = () => {
     return applySelectedEdits(text, selectedItems);
   }, [text, selectedItems]);
 
+  // 预览变化时闪烁提示
+  const [flash, setFlash] = useState(false);
+  React.useEffect(() => {
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 850);
+    return () => clearTimeout(t);
+  }, [previewText]);
+
   const renderList = (title: string, list: ErrorItem[], tag?: SourceTag) => (
-    <div style={{ flex: 1, border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>
+    <div className={styles.card}>
+      <div className={styles.card__title}>
         {title}（{list.length}）
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className={styles.card__list}>
         {list.map((item) => (
-          <label key={item.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <label
+            key={item.id}
+            className={cx(styles.item, selectedIds.has(item.id) && styles['item--active'])}
+          >
             <input
+              className={styles.item__checkbox}
               type="checkbox"
               checked={selectedIds.has(item.id)}
               onChange={() => toggleSelect(item.id)}
             />
-            <div style={{ fontSize: 12, lineHeight: 1.4 }}>
-              <div>
+            <div className={styles.item__body}>
+              <div className={styles.item__line}>
                 <span style={{ fontWeight: 600 }}>{item.text}</span> →{' '}
                 <span style={{ color: '#1e80ff' }}>{item.suggestion}</span>
               </div>
-              <div style={{ color: '#666' }}>
-                [{item.start}, {item.end}] • {item.type}
-                {tag ? ` • ${tag}` : item.metadata?.source ? ` • ${item.metadata.source}` : ''}
+              <div className={styles.item__meta}>
+                [{item.start}, {item.end}] • {item.type}{' '}
+                {(() => {
+                  const src: SourceTag | undefined = tag ?? (item.metadata?.source as SourceTag | undefined);
+                  if (!src) return null;
+                  const cls = src === 'basic'
+                    ? styles['chip--basic']
+                    : src === 'fluent'
+                    ? styles['chip--fluent']
+                    : styles['chip--final'];
+                  return <span className={cx(styles.chip, cls)}>{src}</span>;
+                })()}
               </div>
               {item.explanation ? (
-                <div style={{ color: '#999' }}>{item.explanation}</div>
+                <div className={styles.item__desc}>{item.explanation}</div>
               ) : null}
             </div>
           </label>
         ))}
-        {list.length === 0 && <div style={{ color: '#999' }}>无结果</div>}
+        {list.length === 0 && (
+          loading ? (
+            <div className={styles.skeleton}>
+              <div className={styles.skeleton__row} />
+              <div className={styles.skeleton__row} />
+              <div className={styles.skeleton__row} />
+              <div className={cx(styles.skeleton__row, styles['skeleton__row--short'])} />
+            </div>
+          ) : (
+            <div className={styles.card__empty}>无结果</div>
+          )
+        )}
       </div>
     </div>
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <h3>文本检测 Demo</h3>
+    <div className={styles.analyzer}>
+      <h3 className={styles.analyzer__title}>文本检测 Demo</h3>
 
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={6}
-        style={{ width: '100%', padding: 8 }}
+        className={styles.analyzer__editor}
         placeholder="在此输入要检测的文本"
       />
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-        <div>
-          <label>
+      <div className={styles.analyzer__toolbar}>
+        <div className={styles.analyzer__toggleGroup}>
+          <label className={cx(styles.toggle, enabledTypes.includes('spelling') && styles['toggle--active'])}>
             <input
               type="checkbox"
               checked={enabledTypes.includes('spelling')}
@@ -161,8 +197,7 @@ export const AnalyzerPanel: React.FC = () => {
             />
             拼写
           </label>
-          {'  '}
-          <label>
+          <label className={cx(styles.toggle, enabledTypes.includes('punctuation') && styles['toggle--active'])}>
             <input
               type="checkbox"
               checked={enabledTypes.includes('punctuation')}
@@ -170,8 +205,7 @@ export const AnalyzerPanel: React.FC = () => {
             />
             标点
           </label>
-          {'  '}
-          <label>
+          <label className={cx(styles.toggle, enabledTypes.includes('grammar') && styles['toggle--active'])}>
             <input
               type="checkbox"
               checked={enabledTypes.includes('grammar')}
@@ -179,8 +213,7 @@ export const AnalyzerPanel: React.FC = () => {
             />
             语法
           </label>
-          {'  '}
-          <label>
+          <label className={cx(styles.toggle, enabledTypes.includes('fluency') && styles['toggle--active'])}>
             <input
               type="checkbox"
               checked={enabledTypes.includes('fluency')}
@@ -190,9 +223,8 @@ export const AnalyzerPanel: React.FC = () => {
           </label>
         </div>
 
-        <div>
-          Reviewer：
-          <label>
+        <div className={styles.reviewSwitch}>
+          <label className={cx(styles.reviewSwitch__btn, reviewer === 'on' && styles['reviewSwitch__btn--active'])}>
             <input
               type="radio"
               name="reviewer"
@@ -202,8 +234,7 @@ export const AnalyzerPanel: React.FC = () => {
             />
             开
           </label>
-          {'  '}
-          <label>
+          <label className={cx(styles.reviewSwitch__btn, reviewer === 'off' && styles['reviewSwitch__btn--active'])}>
             <input
               type="radio"
               name="reviewer"
@@ -215,20 +246,31 @@ export const AnalyzerPanel: React.FC = () => {
           </label>
         </div>
 
-        <button onClick={onAnalyze} disabled={loading}>
-          {loading ? '分析中...' : '开始分析'}
+        <button className={styles.btnPrimary} onClick={onAnalyze} disabled={loading}>
+          {loading ? (
+            <>
+              <span className={styles.spinner} /> 分析中...
+            </>
+          ) : (
+            '开始分析'
+          )}
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 12 }}>
+      <div className={styles.columns}>
         {renderList('基础错误（Basic）', basicList, 'basic')}
         {renderList('通顺错误（Fluent）', fluentList, 'fluent')}
         {reviewer === 'on' && renderList('最终合并（Final）', finalList)}
       </div>
 
-      <div>
-        <div style={{ fontWeight: 600, margin: '12px 0 4px' }}>应用所选后的预览</div>
-        <textarea value={previewText} readOnly rows={6} style={{ width: '100%', padding: 8 }} />
+      <div className={styles.preview}>
+        <div className={styles.preview__title}>应用所选后的预览</div>
+        <textarea
+          value={previewText}
+          readOnly
+          rows={6}
+          className={cx(styles.preview__textarea, flash && styles['preview__textarea--flash'])}
+        />
       </div>
     </div>
   );
