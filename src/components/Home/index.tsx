@@ -30,10 +30,28 @@ export default function Home() {
     try {
       const response = await fetch('/api/check', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({ text, options: { enabledTypes } }),
       });
 
+      const contentType = response.headers.get('Content-Type') || '';
+      // 如果是 JSON，走一次性结果路径（兼容不支持 SSE 的环境或测试）
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        if (!response.ok) {
+          const msg = (data && data.error) ? String(data.error) : '服务暂时不可用，请稍后再试。';
+          dispatch({ type: 'SET_API_ERROR', payload: msg });
+          return;
+        }
+        if (data && Array.isArray(data.errors)) {
+          dispatch({ type: 'FINISH_CHECK', payload: data.errors });
+          return;
+        }
+        dispatch({ type: 'SET_API_ERROR', payload: '响应格式不正确。' });
+        return;
+      }
+
+      // 否则期望为 SSE 流
       if (!response.ok || !response.body) {
         dispatch({ type: 'SET_API_ERROR', payload: '服务暂时不可用或响应无效，请稍后再试。' });
         return;
@@ -42,6 +60,8 @@ export default function Home() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      // 使用局部累积数组，避免闭包中的旧 errors 导致的合并不稳定
+      let currentErrors: ErrorItem[] = [];
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -57,9 +77,10 @@ export default function Home() {
             try {
               const json = JSON.parse(part.substring(6));
               if (json.type === 'chunk') {
-                const newErrors = mergeErrors(text, [...errors, ...json.errors]);
-                dispatch({ type: 'STREAM_MERGE_ERRORS', payload: newErrors });
+                currentErrors = mergeErrors(text, [...currentErrors, ...json.errors]);
+                dispatch({ type: 'STREAM_MERGE_ERRORS', payload: currentErrors });
               } else if (json.type === 'final') {
+                // 最终以后端合并结果为准
                 dispatch({ type: 'FINISH_CHECK', payload: json.errors });
               } else if (json.type === 'error') {
                 dispatch({ type: 'SET_API_ERROR', payload: `处理出错: ${json.message}` });
@@ -75,7 +96,7 @@ export default function Home() {
       console.error('Check failed:', e);
       dispatch({ type: 'SET_API_ERROR', payload: '检查时发生未知错误。' });
     }
-  }, [text, errors]);
+  }, [text]);
 
   const handleApplyError = useCallback((errorToApply: ErrorItem) => {
     const { start, end, suggestion } = errorToApply;
@@ -121,6 +142,11 @@ export default function Home() {
 
   return (
     <main className={cn('home__main')}>
+      {apiError && (
+        <div className={cn('home__error-banner')} role="alert">
+          {apiError}
+        </div>
+      )}
       <div className={cn('home__editor-section')}>
         <TextEditor
           value={text}

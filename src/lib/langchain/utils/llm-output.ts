@@ -14,6 +14,10 @@ const RawLLMErrorSchema = z
     explanation: z.string().optional(),
     // 某些模型可能附带 type，但我们会在上层强制覆盖为当前代理类型
     type: z.string().optional(),
+    // 可选增强字段
+    quote: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    id: z.string().optional(),
   })
   .superRefine((val, ctx) => {
     if (typeof val.start === 'number' && typeof val.end === 'number') {
@@ -137,6 +141,35 @@ function sliceMatches(original: string, start: number, end: number, text: string
   return original.slice(start, end) === text;
 }
 
+function findAllOccurrences(haystack: string, needle: string): number[] {
+  if (!haystack || !needle) return [];
+  const res: number[] = [];
+  let from = 0;
+  while (true) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx === -1) break;
+    res.push(idx);
+    from = idx + 1; // 允许重叠
+  }
+  return res;
+}
+
+function findClosestOccurrence(haystack: string, needle: string, hintStart: number): number | -1 {
+  const occ = findAllOccurrences(haystack, needle);
+  if (occ.length === 0) return -1;
+  if (occ.length === 1) return occ[0];
+  let best = occ[0];
+  let bestDist = Math.abs(best - hintStart);
+  for (let i = 1; i < occ.length; i++) {
+    const d = Math.abs(occ[i] - hintStart);
+    if (d < bestDist) {
+      best = occ[i];
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
 export function toErrorItems(
   rawItems: unknown[],
   opts: {
@@ -151,7 +184,7 @@ export function toErrorItems(
   for (const it of rawItems) {
     const parsed = RawLLMErrorSchema.safeParse(it);
     if (!parsed.success) continue;
-    const { text, start, end, suggestion, description, explanation } = parsed.data;
+    const { text, start, end, suggestion, description, explanation, type: rawType, quote, confidence, id: rawId } = parsed.data;
 
     // 索引与原文二次校验，不一致则丢弃
     if (!sliceMatches(originalText ?? '', start, end, text)) {
@@ -169,6 +202,29 @@ export function toErrorItems(
             suggestion,
             type: enforcedType,
             explanation: description ?? explanation ?? '',
+            metadata: {
+              locate: 'unique-text',
+              originalLLM: { start, end, rawType, quote, confidence, rawId },
+            },
+          } as ErrorItem);
+        }
+      }
+      // 仍不匹配时，采用“最接近提示起点”的回退策略
+      if (originalText) {
+        const near = findClosestOccurrence(originalText, text, start);
+        if (near !== -1) {
+          items.push({
+            id: uuidv4(),
+            text,
+            start: near,
+            end: near + text.length,
+            suggestion,
+            type: enforcedType,
+            explanation: description ?? explanation ?? '',
+            metadata: {
+              locate: 'closest-by-hint',
+              originalLLM: { start, end, rawType, quote, confidence, rawId },
+            },
           } as ErrorItem);
         }
       }
@@ -183,6 +239,10 @@ export function toErrorItems(
       suggestion,
       type: enforcedType,
       explanation: description ?? explanation ?? '',
+      metadata: {
+        locate: 'exact',
+        originalLLM: { start, end, rawType, quote, confidence, rawId },
+      },
     } as ErrorItem);
   }
 

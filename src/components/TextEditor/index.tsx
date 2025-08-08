@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import classnames from 'classnames/bind';
 import { ErrorItem } from '@/types/error';
 import styles from './index.module.scss';
@@ -27,6 +27,10 @@ export default function TextEditor({
   onSelectError,
 }: TextEditorProps) {
   const [copied, setCopied] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const highlightsRef = useRef<HTMLDivElement | null>(null);
+  const spanRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
+  const [scrollTop, setScrollTop] = useState(0);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -71,6 +75,13 @@ export default function TextEditor({
           className={cn('highlight', `highlight--${error.type}`, {
             'highlight--active': error.id === activeErrorId,
           })}
+          ref={(el) => {
+            if (!el) {
+              spanRefs.current.delete(error.id);
+            } else {
+              spanRefs.current.set(error.id, el);
+            }
+          }}
           onClick={() => onSelectError(error.id)}
         >
           {value.substring(error.start, error.end)}
@@ -88,6 +99,25 @@ export default function TextEditor({
     return parts;
   }, [value, errors, activeErrorId, onSelectError]);
 
+  const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
+    const top = (e.target as HTMLTextAreaElement).scrollTop;
+    setScrollTop(top);
+  }, []);
+
+  // 当选中错误变化时，自动滚动定位
+  useEffect(() => {
+    if (!activeErrorId) return;
+    const ta = textareaRef.current;
+    const el = spanRefs.current.get(activeErrorId);
+    if (!ta || !el) return;
+    const desired = Math.max(el.offsetTop - 60, 0);
+    try {
+      ta.scrollTo({ top: desired, behavior: 'smooth' });
+    } catch {
+      ta.scrollTop = desired;
+    }
+  }, [activeErrorId]);
+
   return (
     <div className={cn('text-editor')}>
       <div className={cn('text-editor__container')}>
@@ -95,11 +125,19 @@ export default function TextEditor({
           className={cn('text-editor__input')}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onScroll={handleScroll}
+          ref={textareaRef}
           spellCheck="false"
           placeholder="请输入需要检测的中文文本..."
         />
         <div className={cn('text-editor__backdrop')}>
-          <div className={cn('text-editor__highlights')}>{renderWithHighlight}</div>
+          <div
+            className={cn('text-editor__highlights')}
+            ref={highlightsRef}
+            style={{ transform: `translateY(-${scrollTop}px)` }}
+          >
+            {renderWithHighlight}
+          </div>
         </div>
       </div>
       <div className={cn('text-editor__info')}>

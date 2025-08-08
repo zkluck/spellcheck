@@ -24,6 +24,28 @@ export async function POST(request: Request) {
     }
 
     const { text, options } = parsed.data;
+    const accept = request.headers.get('accept') || '';
+    const wantsSSE = accept.includes('text/event-stream');
+    const startedAt = Date.now();
+
+    if (!wantsSSE) {
+      // 非流式：直接返回 JSON，兼容测试与简单客户端
+      const errors = await analyzeText(text, options);
+      const elapsedMs = Date.now() - startedAt;
+      const body = {
+        errors,
+        meta: {
+          elapsedMs,
+          enabledTypes: options.enabledTypes,
+        },
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 流式 SSE
     const encoder = new TextEncoder();
 
     const stream = new ReadableStream({

@@ -30,10 +30,10 @@ export const config = {
   langchain: {
     /**
      * analyzeText 超时时间（毫秒）
-     * 默认: 8000ms (8秒)
+     * 默认: 20000ms (20秒)
      * 环境变量: ANALYZE_TIMEOUT_MS
      */
-    analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 8000),
+    analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 20000),
   },
   
   /**

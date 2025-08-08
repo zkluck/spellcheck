@@ -34,10 +34,12 @@ const BASIC_ERROR_PROMPT = new PromptTemplate({
 2) 每个错误对象包含：
    - "type": 错误类型（必须是 spelling | punctuation | grammar 之一）
    - "text": 错误文本（必须与原文完全一致）
-   - "start": 错误起始索引（基于 JavaScript 字符串下标）
+   - "start": 错误起始索引（基于 JavaScript 字符串下标，UTF-16 计数方式）
    - "end": 错误结束索引（不包含）
    - "suggestion": 建议修改
    - "description": 错误说明
+   - "quote": 原文引用（与 text 字段一致，用于校验）
+   - "confidence": 置信度，0~1 之间的小数
 3) 索引必须准确：text 必须等于原文在 [start, end) 的子串
 4) 只检测确定的、客观的错误，不确定时不报错
 

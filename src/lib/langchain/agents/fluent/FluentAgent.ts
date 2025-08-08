@@ -37,10 +37,12 @@ const FLUENT_PROMPT = new PromptTemplate({
 2) 每个错误对象包含：
    - "type": 错误类型（必须是 fluency）
    - "text": 需要优化的文本片段
-   - "start": 起始索引（基于 JavaScript 字符串下标）
+   - "start": 起始索引（基于 JavaScript 字符串下标，UTF-16 计数方式）
    - "end": 结束索引（不包含）
    - "suggestion": 建议的优化表达
    - "description": 优化说明
+   - "quote": 原文引用（与 text 字段一致，用于校验）
+   - "confidence": 置信度，0~1 之间的小数
 3) 索引必须准确：text 必须等于原文在 [start, end) 的子串
 4) 专注于语义层面的优化，不涉及基础错误修正
 
