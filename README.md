@@ -8,6 +8,11 @@
 
   - 基础错误智能体（BasicErrorAgent）：检测拼写、标点、基础语法等客观错误
   - 流畅智能体（FluentAgent）：检测语义通顺、冗余重复与表达优化问题
+  - 顺序编排（CoordinatorAgent）：先运行 Basic，对原文做临时修复并构建索引映射，再在修复文本上运行 Fluent，将 Fluent 结果安全映射回原文索引；两类错误合并后可交由 Reviewer 审阅。
+
+- **结果保全与来源标记**：同时保留 Basic 与 Fluent 的全部错误候选，供用户选择；每条错误都带有 `metadata.source`（`basic`/`fluent`）。
+
+- **Reviewer 可开关**：通过 `AnalyzeOptions.reviewer?: 'on' | 'off'` 控制是否启用 Reviewer 审阅阶段（默认 `on`）。
 
 - **实时编辑**：用户可以在编辑器中直接输入文本，并获得即时的检测结果
 
@@ -15,11 +20,13 @@
 
 - **高亮显示**：在编辑器中直接高亮显示存在问题的文本，方便用户定位
 
+- **流式回调**：后端在 `analyzeText()` 中支持流式回调，按阶段推送 `basic`、`fluent`、`reviewer` 的结果片段，便于前端分栏实时渲染。
+
 ## 技术栈
 
 - **前端**：Next.js 14 + React 18 + TypeScript 5 + SCSS（BEM 规范，无 & 嵌套）
 - **后端**：Next.js App Router API Routes（Node 环境）
-- **AI**：LangChain 0.1.x 双智能体（基础错误：拼写/标点/语法；流畅：冗余/通顺/表达优化）
+- **AI**：LangChain 0.1.x 多智能体串联（Basic → Fluent → Reviewer，可开关 Reviewer），统一 LLM 保护调用（`guardLLMInvoke`），令牌桶限流（`llm-guard.ts`）
 - **运行时校验**：Zod（API 入参与出参严格校验）
 - **日志**：结构化 logger（`src/lib/logger.ts`）
 - **配置**：统一配置模块（`src/lib/config.ts`，支持 .env）
@@ -63,8 +70,10 @@ OPENAI_BASE_URL=your_openai_base_url
 # LangChain/分析配置
 ANALYZE_TIMEOUT_MS=8000   # analyzeText 超时（毫秒）
 
-# API 速率限制（如未启用可忽略）
-API_RATE_LIMIT=60
+# LLM 速率限制（可选，如未启用可忽略）
+# 令牌桶容量与每秒补充速率（与 llm-guard.ts 配置一致）
+RATE_LIMIT_CAPACITY=30
+RATE_LIMIT_REFILL_PER_SEC=15
 ```
 
 4. 启动开发服务器
@@ -102,7 +111,8 @@ yarn dev
 {
   "text": "需要检查的文本",
   "options": {
-    "enabledTypes": ["grammar", "spelling", "punctuation", "fluency"]
+    "enabledTypes": ["grammar", "spelling", "punctuation", "fluency"],
+    "reviewer": "on" // 可选: "on" | "off"，默认 on
   }
 }
 ```
@@ -119,12 +129,14 @@ yarn dev
       "text": "错误片段",
       "suggestion": "建议",
       "type": "grammar",
-      "explanation": "可选解释"
+      "explanation": "可选解释",
+      "metadata": { "source": "basic" } // 来源标记：basic/fluent
     }
   ],
   "meta": {
     "elapsedMs": 123,
-    "enabledTypes": ["grammar", "spelling"]
+    "enabledTypes": ["grammar", "spelling"],
+    "reviewer": "on"
   }
 }
 ```
@@ -169,14 +181,22 @@ spellcheck/
  │   │   ├── ControlBar/
  │   │   ├── Home/
  │   │   ├── ResultPanel/
- │   │   └── TextEditor/
+ │   │   ├── TextEditor/
+ │   │   └── AnalyzerPanel.tsx   # 示例：分栏展示 Basic/Fluent/Final，支持 reviewer 开关与本地预览
  │   ├── lib/
  │   │   ├── config.ts           # 统一配置（读取 .env）
 │   │   ├── logger.ts           # 结构化日志
 │   │   └── langchain/
-│   │       ├── index.ts        # analyzeText（超时保护、结构化日志）
-│   │       ├── merge.ts        # 错误合并策略
+│   │       ├── index.ts        # analyzeText（超时保护、结构化日志、流式回调）
+│   │       ├── merge.ts        # 错误合并策略（去重/冲突解决/类型优先级）
+│   │       ├── utils/
+│   │       │   ├── llm-guard.ts   # 统一 LLM 调用保护（重试/超时/限流）
+│   │       │   └── llm-output.ts  # LLM 输出解析与健壮性处理
 │   │       └── agents/         # 多智能体实现
+│   │           ├── coordinator/CoordinatorAgent.ts  # 顺序编排与索引映射
+│   │           ├── basic/BasicErrorAgent.ts         # 基础错误检测（guardLLMInvoke）
+│   │           ├── fluent/FluentAgent.ts            # 流畅/表达优化检测
+│   │           └── reviewer/ReviewerAgent.ts        # 审阅与最终裁决（可开关）
 │   └── types/                  # 类型定义（ErrorItem/AnalyzeOptions 等）
 ├── tests/
 │   ├── unit/                   # 单元测试（Vitest）
@@ -195,6 +215,34 @@ spellcheck/
 1. 在`src/lib/langchain/agents`目录下创建新的智能体实现
 2. 在 `src/lib/langchain/agents/coordinator/CoordinatorAgent.ts` 中接入新智能体（根据 `enabledTypes` 决定是否调用）
 3. 在前端界面中添加对应的选项和显示逻辑
+
+### 架构与执行流程
+
+1. BasicErrorAgent 在原文上检测，返回基础错误候选（spelling/punctuation/grammar）。
+2. 将基础候选进行去重与冲突解决（`mergeErrors()`），应用非重叠修复以生成“临时修复文本”，并构建“修复文本索引 → 原文索引”的映射。
+3. FluentAgent 在临时修复文本上检测流畅与表达问题，产出的索引通过映射回投至原文坐标系。
+4. 合并 Basic 与 Fluent 的候选，均带 `metadata.source` 标记；若 `reviewer === 'on'`，交由 Reviewer 审阅（accept/reject/modify），否则直接合并返回。
+5. 最终使用 `mergeErrors()` 产出稳定、无冲突的结果列表。
+
+### 合并与优先级策略（`src/lib/langchain/merge.ts`）
+
+- 去重：按 `start:end:text` 聚类，跨类型比较。
+- 类型优先级（数值越高越优先）：`spelling(4) > punctuation(3) > grammar(2) > fluency(1)`。
+- 冲突（区间重叠）解决：优先更短片段，其次解释信息量（`explanation` 长度），再按类型优先级，最后保持先到者稳定性。
+
+### 前端集成建议
+
+- 使用 `analyzeText(text, options, streamCallback)`：
+  - `streamCallback` 将依次收到 `agent: 'basic' | 'fluent' | 'reviewer'` 的结果片段，便于分栏实时渲染。
+  - 也可直接使用示例组件 `AnalyzerPanel.tsx`。
+- 当 `options.reviewer === 'off'` 时，仅展示 Basic/Fluent 两栏并允许用户直接勾选应用；可用 `mergeErrors()` 在前端对所选项做预览合成。
+
+### 测试建议
+
+- `llm-output.ts`：回退定位不重复插入。
+- `ReviewerAgent`：`modify` 决策索引边界校验。
+- `CoordinatorAgent`：顺序编排与索引映射正确性（Basic 应用后 Fluent 映射回原文）。
+- `merge.ts`：类型优先级与重叠裁决一致性。
 
 ### 自定义检测规则
 
