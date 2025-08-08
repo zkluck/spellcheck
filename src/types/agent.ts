@@ -29,4 +29,6 @@ export interface TextSegment {
  */
 export interface AnalyzeOptions {
   enabledTypes: Array<'spelling' | 'punctuation' | 'grammar' | 'fluency'>;
+  /** ReviewerAgent 开关，默认 on */
+  reviewer?: 'on' | 'off';
 }

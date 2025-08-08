@@ -39,6 +39,13 @@ const ReviewDecisionSchema = z.object({
   suggestion: z.string().optional(),
   explanation: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
+}).superRefine((val, ctx) => {
+  // 若同时提供 start/end，则必须合法：end > start 且二者均为有限数
+  if (typeof val.start === 'number' && typeof val.end === 'number') {
+    if (!(Number.isFinite(val.start) && Number.isFinite(val.end) && val.end > val.start && val.start >= 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['end'], message: 'invalid span: require 0<=start<end' });
+    }
+  }
 });
 
 const REVIEW_PROMPT = new PromptTemplate({
@@ -50,6 +57,8 @@ const REVIEW_PROMPT = new PromptTemplate({
 - 优先采用最小编辑原则，避免过度改写。
 - 起止索引基于 JavaScript 字符串下标，且 [start, end) 子串必须与 text 字段完全一致。
 - 仅输出 JSON 数组，每个元素包含：id, status, 以及在 modify 时可选的 start/end/suggestion/explanation/confidence。
+ - 不要新增候选项；仅对给定 id 做判决。如果无法定位或索引不合法，请直接 reject。
+ - 若选择 modify，并提供 start/end，则它们必须合法且对应的 [start, end) 子串来自原文；否则请 reject。
 
 原文：
 {text}
@@ -102,6 +111,11 @@ export class ReviewerAgent {
         if (d.status === 'reject') continue;
         const start = d.start ?? base.start;
         const end = d.end ?? base.end;
+        // 基本边界校验，确保索引合法并在原文范围内
+        if (!(Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start && end <= input.text.length)) {
+          // 索引不合法，丢弃该决策
+          continue;
+        }
         const suggestion = d.suggestion ?? base.suggestion;
         const explanation = d.explanation ?? base.explanation ?? '';
         refined.push({

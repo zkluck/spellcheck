@@ -189,6 +189,7 @@ export function toErrorItems(
     // 索引与原文二次校验，不一致则丢弃
     if (!sliceMatches(originalText ?? '', start, end, text)) {
       // 可选回退：若文本在原文中仅出现一次，则按唯一出现位置修正索引
+      let inserted = false;
       if (allowLocateByTextUnique && originalText) {
         const first = originalText.indexOf(text);
         if (first !== -1 && first === originalText.lastIndexOf(text)) {
@@ -207,10 +208,11 @@ export function toErrorItems(
               originalLLM: { start, end, rawType, quote, confidence, rawId },
             },
           } as ErrorItem);
+          inserted = true;
         }
       }
-      // 仍不匹配时，采用“最接近提示起点”的回退策略
-      if (originalText) {
+      // 若未通过“唯一文本”定位，再采用“最接近提示起点”的回退策略
+      if (!inserted && originalText) {
         const near = findClosestOccurrence(originalText, text, start);
         if (near !== -1) {
           items.push({

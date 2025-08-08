@@ -5,6 +5,8 @@ import { getLLM } from '@/lib/langchain/models/llm-config';
 import { z } from 'zod';
 import { extractJsonArrayFromContent, toErrorItems } from '@/lib/langchain/utils/llm-output';
 import { PromptTemplate } from '@langchain/core/prompts';
+import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
+import { logger } from '@/lib/logger';
 
 // 定义 BasicErrorAgent 的输入结构
 const BasicErrorAgentInputSchema = z.object({
@@ -83,7 +85,12 @@ export class BasicErrorAgent extends BaseAgent<BasicErrorAgentInput> {
 
     try {
       const formattedPrompt = await BASIC_ERROR_PROMPT.format({ text: input.text });
-      const response = await llm.invoke(formattedPrompt);
+      const response = await guardLLMInvoke(
+        (signal) => llm.invoke(formattedPrompt as unknown as string, { signal } as any),
+        {
+          operationName: 'BasicErrorAgent.llm',
+        }
+      );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
       
       // 统一解析 LLM 输出
@@ -111,7 +118,7 @@ export class BasicErrorAgent extends BaseAgent<BasicErrorAgentInput> {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('BasicErrorAgent: 调用 LLM 时出错', error);
+      logger.error('BasicErrorAgent.invoke.error', { error: errorMessage });
       return { 
         result: [],
         error: errorMessage

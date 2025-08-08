@@ -33,10 +33,14 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
   }
 
   const pickBest = (arr: ErrorItem[]): ErrorItem => {
-    const typeOrder = ['spelling', 'punctuation', 'grammar', 'fluency'];
-    const prio = (t: ErrorItem['type']): number => {
-      return typeOrder.indexOf(t);
+    // 统一优先级：与 resolveOverlaps 中保持一致（数值越大优先级越高）
+    const TYPE_PRIORITY: Record<ErrorItem['type'], number> = {
+      spelling: 4,
+      punctuation: 3,
+      grammar: 2,
+      fluency: 1,
     };
+    const prio = (t: ErrorItem['type']): number => TYPE_PRIORITY[t] ?? 0;
     const explLen = (e: ErrorItem) => (e.explanation?.trim().length ?? 0);
     // 选择：类型优先级 > explanation 长度 > 原顺序
     return arr.reduce((best, cur) => {

@@ -69,6 +69,17 @@ const defaultBucket = new TokenBucket({
   refillPerSec: readNumber('RATE_LIMIT_REFILL_PER_SEC', 5) ?? 5,
 });
 
+// 自定义配置下的共享桶池：以 key 复用，避免每次新建导致限流失效
+const sharedBuckets = new Map<string, TokenBucket>();
+function getSharedBucket(key: string, capacity: number, refillPerSec: number): TokenBucket {
+  let b = sharedBuckets.get(key);
+  if (!b) {
+    b = new TokenBucket({ capacity, refillPerSec });
+    sharedBuckets.set(key, b);
+  }
+  return b;
+}
+
 function sleep(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
 }
@@ -89,12 +100,17 @@ function isRetryableError(err: unknown): boolean {
   // 429 / 5xx / 408 / 连接类错误
   const msg = String((err as any)?.message ?? err ?? '').toLowerCase();
   const code = (err as any)?.status ?? (err as any)?.statusCode;
+  const sysCode = (err as any)?.code; // e.g., ETIMEDOUT, ENOTFOUND
   if (typeof code === 'number') {
     if (code === 429 || code === 408) return true;
     if (code >= 500 && code < 600) return true;
   }
   if (msg.includes('rate limit') || msg.includes('timeout') || msg.includes('timed out')) return true;
   if (msg.includes('ecconnreset') || msg.includes('socket hang up') || msg.includes('ehostunreach')) return true;
+  if (sysCode && typeof sysCode === 'string') {
+    const sc = sysCode.toUpperCase();
+    if (['ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH', 'ENOTFOUND', 'ECONNREFUSED'].includes(sc)) return true;
+  }
   return false;
 }
 
@@ -169,9 +185,12 @@ export async function guardLLMInvoke<T>(
       await sleep(waitMs);
     }
   } else {
-    const tmpBucket = new TokenBucket({ capacity: opts.capacity, refillPerSec: opts.refillPerSec });
-    if (!tmpBucket.acquire(1)) {
-      const waitMs = 1000 / opts.refillPerSec;
+    const cap = Math.max(1, opts.capacity);
+    const ref = Math.max(0, opts.refillPerSec);
+    const key = `${operation}:${cap}:${ref}`;
+    const bucket = getSharedBucket(key, cap, ref);
+    if (!bucket.acquire(1)) {
+      const waitMs = ref > 0 ? Math.ceil(1000 / ref) : 1000;
       logger.warn('ratelimit.wait', { operation, waitMs });
       await sleep(waitMs);
     }
