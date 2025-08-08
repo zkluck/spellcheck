@@ -6,6 +6,7 @@ import { mergeErrors } from '@/lib/langchain/merge';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
 import { ReviewerAgent } from '@/lib/langchain/agents/reviewer/ReviewerAgent';
+import { config } from '@/lib/config';
 
 // 定义 CoordinatorAgent 的输入结构
 const CoordinatorAgentInputSchema = z.object({
@@ -97,7 +98,12 @@ export class CoordinatorAgent {
 
     let refined: ErrorItem[] = [];
     try {
-      const reviewRes = await this.reviewerAgent.call(reviewerInput as any);
+      // Reviewer 内部超时兜底，避免整体 analyze 超时
+      const REVIEW_TIMEOUT_MS = Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8));
+      const reviewRes = await Promise.race<AgentResponse>([
+        this.reviewerAgent.call(reviewerInput as any),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`ReviewerAgent.timeout.${REVIEW_TIMEOUT_MS}`)), REVIEW_TIMEOUT_MS)) as unknown as Promise<AgentResponse>,
+      ]);
       if (streamCallback) {
         streamCallback({ agent: 'reviewer', response: reviewRes });
       }
@@ -112,7 +118,11 @@ export class CoordinatorAgent {
 
       refined = reviewRes.result ?? [];
     } catch (e) {
-      logger.warn('ReviewerAgent failed', { reason: (e as Error)?.message });
+      const reason = (e as Error)?.message;
+      logger.warn('ReviewerAgent failed', { reason });
+      if (streamCallback) {
+        streamCallback({ agent: 'reviewer', response: { result: [], error: reason } as any });
+      }
     }
 
     // 最终合并（主要用于去重与冲突解决）

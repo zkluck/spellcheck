@@ -6,6 +6,7 @@ import { extractJsonArrayFromContent } from '@/lib/langchain/utils/llm-output';
 import { PromptTemplate } from '@langchain/core/prompts';
 import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
 import { logger } from '@/lib/logger';
+import { config } from '@/lib/config';
 
 // 输入：原文 + 候选列表（来自各 Agent 的检测结果）
 const ReviewerInputSchema = z.object({
@@ -80,7 +81,7 @@ export class ReviewerAgent {
       });
       const response = await guardLLMInvoke(
         (signal) => llm.invoke(prompt as unknown as string, { signal } as any),
-        { operationName: 'ReviewerAgent.llm' }
+        { operationName: 'ReviewerAgent.llm', timeoutMs: Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8)) }
       );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
       const arr = extractJsonArrayFromContent(response.content);

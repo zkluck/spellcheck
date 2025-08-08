@@ -30,13 +30,21 @@ export async function POST(request: Request) {
 
     if (!wantsSSE) {
       // 非流式：直接返回 JSON，兼容测试与简单客户端
-      const errors = await analyzeText(text, options);
+      // 但仍然通过回调收集 Reviewer 的警告信息，置于 meta.warnings
+      const warnings: string[] = [];
+      const collectCallback = (chunk: any) => {
+        if (chunk?.agent === 'reviewer' && chunk?.response?.error) {
+          warnings.push(String(chunk.response.error));
+        }
+      };
+      const errors = await analyzeText(text, options, collectCallback);
       const elapsedMs = Date.now() - startedAt;
       const body = {
         errors,
         meta: {
           elapsedMs,
           enabledTypes: options.enabledTypes,
+          ...(warnings.length ? { warnings } : {}),
         },
       };
       return new Response(JSON.stringify(body), {
@@ -50,6 +58,16 @@ export async function POST(request: Request) {
 
     const stream = new ReadableStream({
       async start(controller) {
+        let isClosed = false;
+        const safeEnqueue = (obj: any) => {
+          if (isClosed) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+          } catch {
+            // 如果写入失败，视为已关闭，忽略后续写入
+            isClosed = true;
+          }
+        };
         // 定义流式回调
         const streamCallback = (chunk: any) => {
           const { agent, response } = chunk;
@@ -59,7 +77,10 @@ export async function POST(request: Request) {
             agent,
             errors: response.result,
           };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          safeEnqueue(data);
+          if (response?.error) {
+            safeEnqueue({ type: 'warning', agent, message: response.error });
+          }
         };
 
         try {
@@ -77,12 +98,15 @@ export async function POST(request: Request) {
               enabledTypes: options.enabledTypes,
             },
           };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(finalData)}\n\n`));
+          safeEnqueue(finalData);
         } catch (error) {
           const errorData = { type: 'error', message: (error as Error).message };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorData)}\n\n`));
+          safeEnqueue(errorData);
         } finally {
-          controller.close();
+          if (!isClosed) {
+            try { controller.close(); } catch {}
+            isClosed = true;
+          }
         }
       },
     });
