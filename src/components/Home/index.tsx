@@ -1,145 +1,122 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useReducer, useCallback } from 'react';
 import classnames from 'classnames/bind';
 import TextEditor from '@/components/TextEditor';
 import ControlBar from '@/components/ControlBar';
 import ResultPanel from '@/components/ResultPanel';
 import { ErrorItem } from '@/types/error';
+import { mergeErrors } from '@/lib/langchain/merge';
+import { homeReducer, initialState } from './state';
 import styles from './index.module.scss';
 
 const cn = classnames.bind(styles);
 
+const enabledTypes = ['grammar', 'spelling', 'punctuation', 'fluency'];
+
 export default function Home() {
-  const [text, setText] = useState('');
-  const [errors, setErrors] = useState<ErrorItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeErrorId, setActiveErrorId] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ text: string; errors: ErrorItem[] }[]>([]);
+  const [state, dispatch] = useReducer(homeReducer, initialState);
+  const { text, errors, apiError, isLoading, activeErrorId, history } = state;
 
   const handleTextChange = useCallback((newText: string) => {
-    setText(newText);
+    dispatch({ type: 'SET_TEXT', payload: newText });
   }, []);
 
   const handleCheck = useCallback(async () => {
-    if (!text || isLoading) {
-      return;
-    }
+    if (!text.trim()) return;
 
-    setIsLoading(true);
-    setErrors([]); // Clear previous errors
-    setActiveErrorId(null);
+    dispatch({ type: 'START_CHECK' });
 
     try {
       const response = await fetch('/api/check', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text,
-          options: {
-            // Enable all agent types
-            enabledTypes: ['grammar', 'spelling', 'punctuation', 'fluency'],
-          },
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, options: { enabledTypes } }),
       });
 
-      if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+      if (!response.ok || !response.body) {
+        dispatch({ type: 'SET_API_ERROR', payload: '服务暂时不可用或响应无效，请稍后再试。' });
+        return;
       }
 
-      const result: { errors: ErrorItem[]; meta?: { elapsedMs: number; enabledTypes: string[] } } = await response.json();
-      if (result?.meta) {
-        // 仅调试用途，可在后续接入 UI 呈现耗时与配置
-        // eslint-disable-next-line no-console
-        console.log('Check meta:', result.meta);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+
+        for (const part of parts) {
+          if (part.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(part.substring(6));
+              if (json.type === 'chunk') {
+                const newErrors = mergeErrors(text, [...errors, ...json.errors]);
+                dispatch({ type: 'STREAM_MERGE_ERRORS', payload: newErrors });
+              } else if (json.type === 'final') {
+                dispatch({ type: 'FINISH_CHECK', payload: json.errors });
+              } else if (json.type === 'error') {
+                dispatch({ type: 'SET_API_ERROR', payload: `处理出错: ${json.message}` });
+              }
+            } catch (e) {
+              console.error('Error parsing stream data:', e);
+              dispatch({ type: 'SET_API_ERROR', payload: '解析数据流时出错。' });
+            }
+          }
+        }
       }
-      setErrors(result.errors ?? []);
-    } catch (error) {
-      console.error('Failed to check text:', error);
-    } finally {
-      setIsLoading(false);
+    } catch (e) {
+      console.error('Check failed:', e);
+      dispatch({ type: 'SET_API_ERROR', payload: '检查时发生未知错误。' });
     }
-  }, [text, isLoading]);
+  }, [text, errors]);
 
   const handleApplyError = useCallback((errorToApply: ErrorItem) => {
-    // 保存历史以支持撤回
-    setHistory(prev => [...prev, { text, errors }]);
-    // 最终解决方案：前端即时计算与重新索引
-    const { text: errorText, suggestion, id } = errorToApply;
-    const newStartIndex = text.indexOf(errorText);
+    const { start, end, suggestion } = errorToApply;
+    const newText = text.substring(0, start) + suggestion + text.substring(end);
 
-    if (newStartIndex !== -1) {
-      const newEndIndex = newStartIndex + errorText.length;
-      // 1. 精确替换，生成新文本
-      const newText = text.substring(0, newStartIndex) + suggestion + text.substring(newEndIndex);
-      
-      // 2. 更新文本状态
-      setText(newText);
-
-      // 3. 智能更新错误列表：重新计算所有剩余错误的位置
-      setErrors(currentErrors => {
-        // 首先，过滤掉刚被修正的错误
-        const remainingErrors = currentErrors.filter(e => e.id !== id);
-        
-        // 然后，基于新文本，重新计算每一个剩余错误的位置
-        return remainingErrors.map(error => {
-          const newErrorStartIndex = newText.indexOf(error.text);
-          if (newErrorStartIndex !== -1) {
-            return {
-              ...error,
-              start: newErrorStartIndex,
-              end: newErrorStartIndex + error.text.length,
-            };
-          } 
-          // 如果在新文本中找不到，说明这个错误也因文本变化而失效了，一并移除
-          return null;
-        }).filter((e): e is ErrorItem => e !== null);
+    const offset = suggestion.length - (end - start);
+    const remainingErrors = errors
+      .filter(e => e.id !== errorToApply.id && (e.end <= start || e.start >= end))
+      .map(e => {
+        if (e.start > start) {
+          return { ...e, start: e.start + offset, end: e.end + offset };
+        }
+        return e;
       });
 
-      setActiveErrorId(null);
-    } else {
-      // 如果在当前文本中找不到这个错误，直接移除
-      console.warn(`Could not find error text "${errorText}" in the current text.`);
-      setErrors(currentErrors => currentErrors.filter(e => e.id !== id));
-    }
+    dispatch({ type: 'APPLY_ERROR', payload: { newText, remainingErrors } });
   }, [text, errors]);
 
   const handleIgnoreError = useCallback((errorToIgnore: ErrorItem) => {
-    // 保存历史以支持撤回
-    setHistory(prev => [...prev, { text, errors }]);
-    const { id } = errorToIgnore;
-    setErrors(currentErrors => currentErrors.filter(e => e.id !== id));
-    setActiveErrorId(prev => (prev === id ? null : prev));
-  }, [text, errors]);
+    dispatch({ type: 'IGNORE_ERROR', payload: errorToIgnore.id });
+  }, []);
 
   const handleApplyAll = useCallback(() => {
     if (errors.length === 0) return;
-    // 保存历史以支持撤回
-    setHistory(prev => [...prev, { text, errors }]);
-    // 逐条应用，基于逐次文本累积
     let newText = text;
-    errors.forEach(err => {
-      const idx = newText.indexOf(err.text);
-      if (idx !== -1) {
-        newText = newText.substring(0, idx) + err.suggestion + newText.substring(idx + err.text.length);
-      }
+    [...errors].sort((a, b) => b.start - a.start).forEach(error => {
+      newText = newText.substring(0, error.start) + error.suggestion + newText.substring(error.end);
     });
-    setText(newText);
-    setErrors([]);
-    setActiveErrorId(null);
+    dispatch({ type: 'APPLY_ALL_ERRORS', payload: newText });
   }, [text, errors]);
 
   const handleUndo = useCallback(() => {
-    setHistory(prev => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      setText(last.text);
-      setErrors(last.errors);
-      setActiveErrorId(null);
-      return prev.slice(0, -1);
-    });
+    dispatch({ type: 'UNDO' });
+  }, []);
+
+  const handleClear = useCallback(() => {
+    dispatch({ type: 'CLEAR_RESULTS' });
+  }, []);
+
+  const handleSelectError = useCallback((id: string | null) => {
+    dispatch({ type: 'SET_ACTIVE_ERROR', payload: id });
   }, []);
 
   return (
@@ -150,7 +127,7 @@ export default function Home() {
           onChange={handleTextChange}
           errors={errors}
           activeErrorId={activeErrorId}
-          onSelectError={setActiveErrorId}
+          onSelectError={handleSelectError}
         />
         <ControlBar
           onCheck={handleCheck}
@@ -168,7 +145,7 @@ export default function Home() {
         canUndo={history.length > 0}
         canApplyAll={errors.length > 0}
         activeErrorId={activeErrorId}
-        onSelectError={setActiveErrorId}
+        onSelectError={handleSelectError}
         isLoading={isLoading}
       />
     </main>

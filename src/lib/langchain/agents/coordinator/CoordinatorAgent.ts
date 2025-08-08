@@ -16,9 +16,11 @@ const CoordinatorAgentInputSchema = z.object({
 
 type CoordinatorAgentInput = z.infer<typeof CoordinatorAgentInputSchema>;
 
+// 流式回调函数类型
+type StreamCallback = (chunk: { agent: string; response: AgentResponse }) => void;
+
 /**
- * CoordinatorAgent 负责协调2个检测代理，并整合它们的结果。
- * 新架构：BasicErrorAgent（基础错误）+ FluentAgent（语义通顺）
+ * CoordinatorAgent 负责协调多个检测代理，并支持流式返回结果。
  */
 export class CoordinatorAgent {
   private basicErrorAgent: BasicErrorAgent;
@@ -29,77 +31,58 @@ export class CoordinatorAgent {
     this.fluentAgent = new FluentAgent();
   }
 
-  async call(input: CoordinatorAgentInput): Promise<AgentResponse> {
+  async call(input: CoordinatorAgentInput, streamCallback?: StreamCallback): Promise<AgentResponse> {
     const { text, options } = input;
     const { enabledTypes } = options;
 
-    const promises: Promise<{ agent: string; response: AgentResponse }>[] = [];
-    const agentNames: string[] = [];
+    const promises: Promise<void>[] = [];
+    const allResults: AgentResponse[] = [];
 
-    // 检查是否需要基础错误检测（拼写、标点、语法）
+    const runAgent = (agentInstance: BasicErrorAgent | FluentAgent, agentName: string) => {
+      const promise = agentInstance.call({ text })
+        .then(response => {
+          const chunk = { agent: agentName, response };
+          if (streamCallback) {
+            streamCallback(chunk);
+          }
+          allResults.push(response);
+
+          // 调试信息
+          logger.debug(`\n=== ${agentName.toUpperCase()} AGENT DEBUG ===`);
+          logger.debug('Raw LLM Output:', response.rawOutput);
+          logger.debug('Parsed Result:', JSON.stringify(response.result, null, 2));
+          if (response.error) {
+            logger.debug('Error:', response.error);
+          }
+          logger.debug('='.repeat(40));
+        })
+        .catch(error => {
+          logger.warn('Agent failed', { agent: agentName, reason: (error as Error)?.message });
+        });
+      promises.push(promise);
+    };
+
     const needsBasicErrors = enabledTypes.some(type => 
       ['spelling', 'punctuation', 'grammar'].includes(type)
     );
     
     if (needsBasicErrors) {
-      promises.push(
-        this.basicErrorAgent.call({ text }).then((response: AgentResponse) => ({ agent: 'basic', response }))
-      );
-      agentNames.push('basic');
+      runAgent(this.basicErrorAgent, 'basic');
     }
     
-    // 检查是否需要语义通顺检测
     if (enabledTypes.includes('fluency')) {
-      promises.push(
-        this.fluentAgent.call({ text }).then((response: AgentResponse) => ({ agent: 'fluent', response }))
-      );
-      agentNames.push('fluent');
+      runAgent(this.fluentAgent, 'fluent');
     }
 
-    // 等待所有选中的智能体完成（允许部分失败）
-    const settled = await Promise.allSettled(promises);
-    const rawResults: AgentResponse[] = [];
-    const debugInfo: Array<{ agent: string; rawOutput: string; parsedResult: any; error?: string }> = [];
-    
-    settled.forEach((res, idx) => {
-      if (res.status === 'fulfilled') {
-        const { agent, response } = res.value;
-        rawResults.push(response);
-        
-        // 记录调试信息
-        debugInfo.push({
-          agent,
-          rawOutput: response.rawOutput || 'No raw output available',
-          parsedResult: response.result,
-          error: response.error
-        });
-        
-        // 控制台输出调试信息
-        console.log(`\n=== ${agent.toUpperCase()} AGENT DEBUG ===`);
-        console.log('Raw LLM Output:', response.rawOutput);
-        console.log('Parsed Result:', JSON.stringify(response.result, null, 2));
-        if (response.error) {
-          console.log('Error:', response.error);
-        }
-        console.log('='.repeat(40));
-      } else {
-        const agentName = agentNames[idx] || `agent-${idx}`;
-        logger.warn('Agent failed', { agent: agentName, reason: (res.reason as Error)?.message });
-        debugInfo.push({
-          agent: agentName,
-          rawOutput: '',
-          parsedResult: [],
-          error: (res.reason as Error)?.message || 'Unknown error'
-        });
-      }
-    });
+    // 等待所有智能体完成
+    await Promise.all(promises);
 
-    // 提取所有错误项并使用简化的合并逻辑
-    const allErrors = rawResults.map((result) => result.result);
+    // 合并所有收集到的结果
+    const allErrors = allResults.map(result => result.result);
     const mergedErrors = mergeErrors(text, allErrors);
 
     return {
-      result: mergedErrors
+      result: mergedErrors,
     };
   }
 }
