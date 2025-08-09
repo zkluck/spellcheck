@@ -7,14 +7,17 @@ const cn = classnames.bind(styles);
 
 interface ControlBarProps {
   onCheck: () => void;
+  onCancel?: () => void;
   isLoading: boolean;
   hasErrors: boolean;
   textLength: number;
 }
 
-export default function ControlBar({ onCheck, isLoading, hasErrors, textLength }: ControlBarProps) {
-  const handleCheck = () => {
-    if (!isLoading) {
+export default function ControlBar({ onCheck, onCancel, isLoading, hasErrors, textLength }: ControlBarProps) {
+  const handleCheckOrCancel = () => {
+    if (isLoading) {
+      onCancel?.();
+    } else {
       onCheck();
     }
   };
@@ -26,10 +29,10 @@ export default function ControlBar({ onCheck, isLoading, hasErrors, textLength }
       </div>
       <button
         className={cn('control-bar__check-button')}
-        onClick={handleCheck}
-        disabled={isLoading || textLength === 0}
+        onClick={handleCheckOrCancel}
+        disabled={!isLoading && textLength === 0}
       >
-        {isLoading ? '检测中...' : '开始检测'}
+        {isLoading ? '取消' : '开始检测'}
       </button>
     </div>
   );

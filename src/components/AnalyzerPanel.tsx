@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { analyzeText } from '@/lib/langchain';
 import type { ErrorItem } from '@/types/error';
 import type { AnalyzeOptions } from '@/types/agent';
@@ -40,6 +40,7 @@ export const AnalyzerPanel: React.FC = () => {
   const [reviewer, setReviewer] = useState<'on' | 'off'>('on');
 
   const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [basicList, setBasicList] = useState<ErrorItem[]>([]);
   const [fluentList, setFluentList] = useState<ErrorItem[]>([]);
   const [finalList, setFinalList] = useState<ErrorItem[]>([]); // 最终合并（Reviewer 后或跳过 Reviewer）
@@ -64,6 +65,11 @@ export const AnalyzerPanel: React.FC = () => {
     };
 
     try {
+      // 取消上一请求
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const result = await analyzeText(
         text,
         options,
@@ -77,16 +83,35 @@ export const AnalyzerPanel: React.FC = () => {
           } else if (chunk.agent === 'reviewer') {
             setFinalList(res as ErrorItem[]);
           }
-        }
+        },
+        controller.signal
       );
       // analyzeText 返回最终合并列表（Reviewer on：审阅后；off：直接合并候选）
       setFinalList(result ?? []);
     } catch (e) {
-      console.error('analyze error', e);
+      if ((e as any)?.name === 'AbortError') {
+        console.warn('请求已取消');
+      } else {
+        console.error('analyze error', e);
+      }
     } finally {
       setLoading(false);
+      if (abortRef.current) {
+        abortRef.current = null;
+      }
     }
   }, [text, enabledTypes, reviewer]);
+
+  const onCancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  // 卸载时中止未完成的请求
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -246,14 +271,12 @@ export const AnalyzerPanel: React.FC = () => {
           </label>
         </div>
 
-        <button className={styles.btnPrimary} onClick={onAnalyze} disabled={loading}>
-          {loading ? (
-            <>
-              <span className={styles.spinner} /> 分析中...
-            </>
-          ) : (
-            '开始分析'
-          )}
+        <button
+          className={styles.btnPrimary}
+          onClick={loading ? onCancel : onAnalyze}
+          disabled={!loading && text.trim().length === 0}
+        >
+          {loading ? '取消' : '开始分析'}
         </button>
       </div>
 
@@ -275,3 +298,5 @@ export const AnalyzerPanel: React.FC = () => {
     </div>
   );
 };
+
+export default AnalyzerPanel;

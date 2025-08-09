@@ -19,6 +19,8 @@ export interface RateLimitOptions {
 
 export interface GuardOptions extends Partial<RetryOptions>, TimeoutOptions, Partial<RateLimitOptions> {
   operationName?: string;
+  // 父级取消信号（例如来自 HTTP request.signal），将与超时信号合并
+  parentSignal?: AbortSignal;
 }
 
 function readNumber(envName: string, fallback?: number): number | undefined {
@@ -114,14 +116,38 @@ function isRetryableError(err: unknown): boolean {
   return false;
 }
 
-async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs?: number): Promise<T> {
-  if (!timeoutMs || timeoutMs <= 0) return fn(new AbortController().signal);
+function createAbortError(): Error {
+  const err = new Error('Aborted');
+  (err as any).name = 'AbortError';
+  return err;
+}
+
+async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs?: number, parentSignal?: AbortSignal): Promise<T> {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  let parentListener: (() => void) | null = null;
+
+  // 若父信号已中止，直接抛出 AbortError，避免无谓调用
+  if (parentSignal?.aborted) {
+    throw createAbortError();
+  }
+
+  // 合并父级取消
+  if (parentSignal) {
+    parentListener = () => ac.abort();
+    parentSignal.addEventListener('abort', parentListener);
+  }
+
+  // 超时取消
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => ac.abort(), timeoutMs);
+  }
+
   try {
     return await fn(ac.signal);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
+    if (parentSignal && parentListener) parentSignal.removeEventListener('abort', parentListener);
   }
 }
 
@@ -206,7 +232,7 @@ export async function guardLLMInvoke<T>(
   const timeoutMs = opts.timeoutMs ?? readNumber('LLM_TIMEOUT_MS') ?? undefined;
 
   logger.debug('llm.invoke.start', { operation, timeoutMs, retryOpts });
-  const result = await withRetry(() => withTimeout((signal) => invoker(signal), timeoutMs), {
+  const result = await withRetry(() => withTimeout((signal) => invoker(signal), timeoutMs, opts.parentSignal), {
     ...retryOpts,
     operationName: operation,
   });

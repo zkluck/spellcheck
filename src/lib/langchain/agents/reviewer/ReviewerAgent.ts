@@ -108,7 +108,7 @@ const REVIEW_PROMPT = new PromptTemplate({
 });
 
 export class ReviewerAgent {
-  async call(input: ReviewerInput): Promise<AgentResponse & { decisions?: z.infer<typeof ReviewDecisionSchema>[] }> {
+  async call(input: ReviewerInput, signal?: AbortSignal): Promise<AgentResponse & { decisions?: z.infer<typeof ReviewDecisionSchema>[] }> {
     const parsed = ReviewerInputSchema.safeParse(input);
     if (!parsed.success) {
       return { result: [], error: 'ReviewerAgent.invalid_input' };
@@ -121,8 +121,8 @@ export class ReviewerAgent {
         candidates: JSON.stringify(input.candidates, null, 2),
       });
       const response = await guardLLMInvoke(
-        (signal) => llm.invoke(prompt as unknown as string, { signal } as any),
-        { operationName: 'ReviewerAgent.llm', timeoutMs: Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8)) }
+        (innerSignal) => llm.invoke(prompt as unknown as string, { signal: innerSignal } as any),
+        { operationName: 'ReviewerAgent.llm', timeoutMs: Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8)), parentSignal: signal }
       );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
       const arr = extractJsonArrayFromContent(response.content);

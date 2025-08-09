@@ -17,5 +17,5 @@ export abstract class BaseAgent<T> {
    * @param input The input data for the agent.
    * @returns A promise that resolves with the agent's response.
    */
-  abstract call(input: T): Promise<AgentResponse>;
+  abstract call(input: T, signal?: AbortSignal): Promise<AgentResponse>;
 }

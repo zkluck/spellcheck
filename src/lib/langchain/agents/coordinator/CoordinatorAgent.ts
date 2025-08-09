@@ -36,7 +36,7 @@ export class CoordinatorAgent {
     this.reviewerAgent = new ReviewerAgent();
   }
 
-  async call(input: CoordinatorAgentInput, streamCallback?: StreamCallback): Promise<AgentResponse> {
+  async call(input: CoordinatorAgentInput, streamCallback?: StreamCallback, signal?: AbortSignal): Promise<AgentResponse> {
     const { text, options } = input;
     const { enabledTypes } = options;
     const runReviewer = (options.reviewer ?? 'on') === 'on';
@@ -56,7 +56,7 @@ export class CoordinatorAgent {
     let basicRes: AgentResponse | null = null;
     if (needsBasicErrors) {
       try {
-        basicRes = await this.basicErrorAgent.call({ text });
+        basicRes = await this.basicErrorAgent.call({ text }, signal);
         // 为 basic 结果打上来源标签
         const normalizedBasic: AgentResponse = {
           ...basicRes,
@@ -94,7 +94,7 @@ export class CoordinatorAgent {
     if (enabledTypes.includes('fluency')) {
       try {
         const fluentInputText = patchedText;
-        fluentRes = await this.fluentAgent.call({ text: fluentInputText });
+        fluentRes = await this.fluentAgent.call({ text: fluentInputText }, signal);
         // 4) 将 Fluent 错误索引映射回原文
         const mappedFluent: ErrorItem[] = [];
         if (fluentRes.result && fluentRes.result.length > 0) {
@@ -159,7 +159,7 @@ export class CoordinatorAgent {
       const REVIEW_TIMEOUT_MS = Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8));
       if (runReviewer) {
         const reviewRes = await Promise.race<AgentResponse>([
-          this.reviewerAgent.call(reviewerInput as any),
+          this.reviewerAgent.call(reviewerInput as any, signal),
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`ReviewerAgent.timeout.${REVIEW_TIMEOUT_MS}`)), REVIEW_TIMEOUT_MS)) as unknown as Promise<AgentResponse>,
         ]);
         if (streamCallback) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useState, useEffect, useRef } from 'react';
 import classnames from 'classnames/bind';
 import TextEditor from '@/components/TextEditor';
 import ControlBar from '@/components/ControlBar';
@@ -9,6 +9,7 @@ import { ErrorItem } from '@/types/error';
 import { mergeErrors } from '@/lib/langchain/merge';
 import { homeReducer, initialState } from './state';
 import styles from './index.module.scss';
+import { feConfig } from '@/lib/feConfig';
 
 const cn = classnames.bind(styles);
 
@@ -17,6 +18,12 @@ const enabledTypes = ['grammar', 'spelling', 'punctuation', 'fluency'];
 export default function Home() {
   const [state, dispatch] = useReducer(homeReducer, initialState);
   const { text, errors, apiError, isLoading, activeErrorId, history } = state;
+  // ReviewerAgent 开关，默认 on
+  const [reviewer, setReviewer] = useState<'on' | 'off'>('on');
+  // 维护一个全局 AbortController，用于取消上一次请求和组件卸载时清理
+  const abortRef = useRef<AbortController | null>(null);
+  // 轻量提示：重试状态（不影响 reducer 的 isLoading 流程）
+  const [retryStatus, setRetryStatus] = useState<string | null>(null);
 
   const handleTextChange = useCallback((newText: string) => {
     dispatch({ type: 'SET_TEXT', payload: newText });
@@ -26,77 +33,277 @@ export default function Home() {
     if (!text.trim()) return;
 
     dispatch({ type: 'START_CHECK' });
+    setRetryStatus(null);
 
-    try {
-      const response = await fetch('/api/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-        body: JSON.stringify({ text, options: { enabledTypes } }),
+    // 若存在上一请求，先中止
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const maxRetries = feConfig.maxRetries;
+    const baseDelay = feConfig.baseDelayMs; // ms 基础退避（集中配置）
+    const idleMs = feConfig.idleMs; // 若超过设定时长未收到数据/心跳，认为连接空闲并重试
+
+    // 总时长上限（超出则终止）
+    const totalTimeoutMs = feConfig.totalTimeoutMs;
+    const totalDeadline = Date.now() + totalTimeoutMs;
+    const remaining = () => Math.max(0, totalDeadline - Date.now());
+    const totalTimeoutId = setTimeout(() => {
+      try {
+        // 标记为总时长超时
+        controller.abort(new DOMException('Total timeout exceeded', 'TimeoutError'));
+      } catch {}
+    }, totalTimeoutMs);
+
+    const sleep = (ms: number, signal: AbortSignal) =>
+      new Promise<void>((resolve, reject) => {
+        const id = setTimeout(() => resolve(), ms);
+        const onAbort = () => {
+          clearTimeout(id);
+          const err = new DOMException('Aborted', 'AbortError');
+          reject(err);
+        };
+        if ((signal as any)?.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
       });
 
-      const contentType = response.headers.get('Content-Type') || '';
-      // 如果是 JSON，走一次性结果路径（兼容不支持 SSE 的环境或测试）
-      if (contentType.includes('application/json')) {
-        const data = await response.json();
-        if (!response.ok) {
-          const msg = (data && data.error) ? String(data.error) : '服务暂时不可用，请稍后再试。';
-          dispatch({ type: 'SET_API_ERROR', payload: msg });
-          return;
-        }
-        if (data && Array.isArray(data.errors)) {
-          dispatch({ type: 'FINISH_CHECK', payload: data.errors });
-          return;
-        }
-        dispatch({ type: 'SET_API_ERROR', payload: '响应格式不正确。' });
-        return;
+    type AttemptOutcome = { outcome: 'success' | 'terminal' | 'retry'; reason?: string };
+
+
+
+    const calcBackoffMs = (attempt: number, reason?: string) => {
+      // 基于原因微调基数
+      let base = baseDelay;
+      if (reason === 'http-5xx') base = 800;
+      else if (reason === 'network') base = 700;
+      else if (reason === 'idle') base = 600;
+      else if (reason === 'eof-no-final') base = 650;
+      // 指数退避 + 抖动
+      const raw = base * Math.pow(2, attempt - 1);
+      const jitter = 0.2 + Math.random() * 0.3; // 20%-50%
+      const withJitter = raw * (1 + jitter);
+      // 夹在[min,max]
+      return Math.max(feConfig.backoffMinMs, Math.min(feConfig.backoffMaxMs, Math.floor(withJitter)));
+    };
+
+    const reasonLabel = (reason?: string) => {
+      switch (reason) {
+        case 'http-5xx': return '服务器错误 (5xx)';
+        case 'network': return '网络中断';
+        case 'idle': return '空闲超时';
+        case 'eof-no-final': return '流意外结束';
+        default: return '网络波动';
       }
+    };
 
-      // 否则期望为 SSE 流
-      if (!response.ok || !response.body) {
-        dispatch({ type: 'SET_API_ERROR', payload: '服务暂时不可用或响应无效，请稍后再试。' });
-        return;
-      }
+    const attemptOnce = async (attempt: number): Promise<AttemptOutcome> => {
+      try {
+        // E2E: 若存在 cookie 注入，则透传为请求头，确保后端能稳定识别场景
+        const cookie = typeof document !== 'undefined' ? document.cookie || '' : '';
+        const pick = (name: string) => {
+          const m = cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+          return m ? decodeURIComponent(m[1]) : undefined;
+        };
+        const e2eScenario = pick('e2e_scenario');
+        const e2eId = pick('e2e_id');
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        };
+        if (e2eScenario) headers['x-e2e-scenario'] = e2eScenario;
+        if (e2eId) headers['x-e2e-id'] = e2eId;
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      // 使用局部累积数组，避免闭包中的旧 errors 导致的合并不稳定
-      let currentErrors: ErrorItem[] = [];
+        const response = await fetch('/api/check', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ text, options: { enabledTypes, reviewer } }),
+          signal: controller.signal,
+        });
+        const reqId = response.headers.get('X-Request-Id') || undefined;
+        console.info('[sse] attempt', attempt, 'requestId', reqId || 'N/A');
+        // E2E: 将阶段/场景打印到控制台，供用例稳定捕获（若服务端头缺失，则回退基于状态码/Content-Type 判断）
+        try {
+          const scenarioHdr = response.headers.get('X-E2E-Scenario');
+          let stage = response.headers.get('X-E2E-Stage');
+          if (!stage) {
+            if (response.status === 429 || response.status >= 500) stage = 'first';
+            else {
+              const ct = response.headers.get('Content-Type') || '';
+              if (response.ok && ct.includes('text/event-stream')) stage = 'ok';
+            }
+          }
+          if (stage) console.info('[e2e] stage', stage, 'scenario', scenarioHdr || '');
+        } catch {}
 
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        const contentType = response.headers.get('Content-Type') || '';
 
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
+        // JSON 路径：一次性结果或错误，不重试（视状态而定）
+        if (contentType.includes('application/json')) {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : '服务暂时不可用，请稍后再试。';
+            // 4xx 视为终止，5xx 可重试
+            if (response.status >= 500) {
+              return { outcome: 'retry', reason: 'http-5xx' };
+            }
+            dispatch({ type: 'SET_API_ERROR', payload: msg });
+            return { outcome: 'terminal' };
+          }
+          if (data && Array.isArray(data.errors)) {
+            dispatch({ type: 'FINISH_CHECK', payload: data.errors });
+            return { outcome: 'success' };
+          }
+          dispatch({ type: 'SET_API_ERROR', payload: '响应格式不正确。' });
+          return { outcome: 'terminal' };
+        }
 
-        for (const part of parts) {
-          if (part.startsWith('data: ')) {
-            try {
-              const json = JSON.parse(part.substring(6));
-              if (json.type === 'chunk') {
-                currentErrors = mergeErrors(text, [...currentErrors, ...json.errors]);
-                dispatch({ type: 'STREAM_MERGE_ERRORS', payload: currentErrors });
-              } else if (json.type === 'final') {
-                // 最终以后端合并结果为准
-                dispatch({ type: 'FINISH_CHECK', payload: json.errors });
-              } else if (json.type === 'error') {
-                dispatch({ type: 'SET_API_ERROR', payload: `处理出错: ${json.message}` });
+        // 期望为 SSE 流
+        if (!response.ok || !response.body) {
+          // 仅对 5xx 进行重试
+          if (response.status >= 500) {
+            return { outcome: 'retry', reason: 'http-5xx' };
+          }
+          dispatch({ type: 'SET_API_ERROR', payload: '服务暂时不可用或响应无效，请稍后再试。' });
+          return { outcome: 'terminal' };
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let gotFinal = false;
+        let currentErrors: ErrorItem[] = [];
+
+        // 读取封装：支持空闲超时
+        const readWithIdle = () =>
+          new Promise<ReadableStreamReadResult<Uint8Array> | { idle: true } | { error: any }>((resolve) => {
+            const timeoutId = setTimeout(() => resolve({ idle: true }), idleMs);
+            reader.read()
+              .then((r) => { clearTimeout(timeoutId); resolve(r); })
+              .catch((err) => { clearTimeout(timeoutId); resolve({ error: err }); });
+            const onAbort = () => { clearTimeout(timeoutId); resolve({ error: new DOMException('Aborted', 'AbortError') }); };
+            if ((controller.signal as any).aborted) onAbort();
+            else controller.signal.addEventListener('abort', onAbort, { once: true });
+          });
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const result = await readWithIdle();
+          if ('error' in (result as any)) {
+            throw (result as any).error;
+          }
+          if ('idle' in (result as any)) {
+            // 空闲：尝试取消当前 reader 并进入重试
+            try { await reader.cancel(); } catch {}
+            return { outcome: 'retry', reason: 'idle' };
+          }
+          const { done, value } = result as ReadableStreamReadResult<Uint8Array>;
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() || '';
+
+          for (const part of parts) {
+            if (part.startsWith('data: ')) {
+              const payload = part.substring(6).trimStart();
+              if (!(payload.startsWith('{') || payload.startsWith('['))) {
+                // 非 JSON 结构，忽略
+                continue;
               }
-            } catch (e) {
-              console.error('Error parsing stream data:', e);
-              dispatch({ type: 'SET_API_ERROR', payload: '解析数据流时出错。' });
+              try {
+                const json = JSON.parse(payload);
+                if (json.type === 'chunk') {
+                  currentErrors = mergeErrors(text, [...currentErrors, ...json.errors]);
+                  dispatch({ type: 'STREAM_MERGE_ERRORS', payload: currentErrors });
+                } else if (json.type === 'final') {
+                  dispatch({ type: 'FINISH_CHECK', payload: json.errors });
+                  gotFinal = true;
+                } else if (json.type === 'error') {
+                  // 服务器明确错误：终止
+                  dispatch({ type: 'SET_API_ERROR', payload: `处理出错: ${json.message}` });
+                  return { outcome: 'terminal' };
+                }
+              } catch (e) {
+                console.warn('SSE data JSON parse failed:', e);
+                // 忽略该条负载，继续读取
+                continue;
+              }
             }
           }
         }
+
+        // 流自然结束但未收到 final，视为可重试的中断
+        return gotFinal ? { outcome: 'success' } : { outcome: 'retry', reason: 'eof-no-final' };
+      } catch (e) {
+        if ((e as any)?.name === 'AbortError') {
+          // 直接向上抛给外层捕获并处理
+          throw e;
+        }
+        console.warn(`Attempt ${attempt} failed:`, e);
+        return { outcome: 'retry', reason: 'network' };
       }
+    };
+
+    try {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        // 若无剩余时间，直接终止
+        if (remaining() <= 0) {
+          setRetryStatus(null);
+          dispatch({ type: 'SET_API_ERROR', payload: `本次检测已超时（>${Math.floor(totalTimeoutMs/1000)}s）。` });
+          return;
+        }
+        const res = await attemptOnce(attempt);
+        if (res.outcome === 'success' || res.outcome === 'terminal') {
+          setRetryStatus(null);
+          return;
+        }
+        // retry 分支：指数退避 + 抖动，期间若用户取消则中断
+        const waitMs = Math.min(calcBackoffMs(attempt, res.reason), remaining());
+        setRetryStatus(`${reasonLabel(res.reason)}，${Math.round(waitMs / 100) / 10}s 后重试 (${attempt}/${maxRetries})…`);
+        await sleep(waitMs, controller.signal);
+      }
+      // 达到最大重试次数仍失败
+      setRetryStatus(null);
+      dispatch({ type: 'SET_API_ERROR', payload: `连接中断，已重试 ${maxRetries} 次仍失败。` });
     } catch (e) {
-      console.error('Check failed:', e);
-      dispatch({ type: 'SET_API_ERROR', payload: '检查时发生未知错误。' });
+      if ((e as any)?.name === 'AbortError') {
+        // 区分总时长上限触发 vs 用户主动取消
+        const reason = (controller.signal as any)?.reason;
+        setRetryStatus(null);
+        if (reason && reason.name === 'TimeoutError') {
+          dispatch({ type: 'SET_API_ERROR', payload: `本次检测已超时（>${Math.floor(totalTimeoutMs/1000)}s）。` });
+        } else {
+          dispatch({ type: 'SET_API_ERROR', payload: '请求已取消。' });
+        }
+      } else {
+        console.error('Check failed:', e);
+        setRetryStatus(null);
+        dispatch({ type: 'SET_API_ERROR', payload: '检查时发生未知错误。' });
+      }
+    } finally {
+      // 清理当前 controller
+      if (abortRef.current) {
+        abortRef.current = null;
+      }
+      // 清理总时长定时器
+      try { clearTimeout(totalTimeoutId); } catch {}
     }
-  }, [text]);
+  }, [text, reviewer]);
+
+  // 允许用户手动取消正在进行的检查
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  // 组件卸载时中止未完成的请求
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const handleApplyError = useCallback((errorToApply: ErrorItem) => {
     const { start, end, suggestion } = errorToApply;
@@ -158,8 +365,36 @@ export default function Home() {
               activeErrorId={activeErrorId}
               onSelectError={handleSelectError}
             />
+            {/* Reviewer 开关（简易单选按钮） */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '8px 0' }}>
+              <span>审阅（Reviewer）</span>
+              <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                <input
+                  type="radio"
+                  name="reviewer"
+                  value="on"
+                  checked={reviewer === 'on'}
+                  onChange={() => setReviewer('on')}
+                />
+                开
+              </label>
+              <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                <input
+                  type="radio"
+                  name="reviewer"
+                  value="off"
+                  checked={reviewer === 'off'}
+                  onChange={() => setReviewer('off')}
+                />
+                关
+              </label>
+            </div>
+            {isLoading && retryStatus && (
+              <div style={{ color: '#667085', fontSize: 12, margin: '4px 0' }}>{retryStatus}</div>
+            )}
             <ControlBar
               onCheck={handleCheck}
+              onCancel={handleCancel}
               isLoading={isLoading}
               hasErrors={errors.length > 0}
               textLength={text.length}

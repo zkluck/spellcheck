@@ -120,15 +120,16 @@ export class BasicErrorAgent extends BaseAgent<BasicErrorAgentInput> {
     super('BasicErrorAgent');
   }
 
-  async call(input: BasicErrorAgentInput): Promise<AgentResponse> {
+  async call(input: BasicErrorAgentInput, signal?: AbortSignal): Promise<AgentResponse> {
     const llm = getLLM();
 
     try {
       const formattedPrompt = await BASIC_ERROR_PROMPT.format({ text: input.text });
       const response = await guardLLMInvoke(
-        (signal) => llm.invoke(formattedPrompt as unknown as string, { signal } as any),
+        (innerSignal) => llm.invoke(formattedPrompt as unknown as string, { signal: innerSignal } as any),
         {
           operationName: 'BasicErrorAgent.llm',
+          parentSignal: signal,
         }
       );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);

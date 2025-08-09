@@ -14,12 +14,14 @@ type StreamCallback = (chunk: { agent: string; response: AgentResponse }) => voi
  * @param text 要分析的文本。
  * @param options 分析选项，指定要启用的检测类型。
  * @param streamCallback 可选的回调函数，用于流式处理中间结果。
+ * @param signal 可选的取消信号（通常来自 HTTP request.signal），用于中止后台 LLM 调用。
  * @returns 一个包含所有检测到的错误项的数组。
  */
 export async function analyzeText(
   text: string, 
   options: AnalyzeOptions, 
-  streamCallback?: StreamCallback
+  streamCallback?: StreamCallback,
+  signal?: AbortSignal,
 ): Promise<ErrorItem[]> {
   if (!text || typeof text !== 'string') {
     return [];
@@ -38,8 +40,8 @@ export async function analyzeText(
     });
 
     // 将 streamCallback 传递给 coordinator
-    const result = await Promise.race([
-      coordinator.call({ text, options }, streamCallback),
+    const result = await Promise.race<AgentResponse | never>([
+      coordinator.call({ text, options }, streamCallback, signal),
       timeoutPromise,
     ]);
 

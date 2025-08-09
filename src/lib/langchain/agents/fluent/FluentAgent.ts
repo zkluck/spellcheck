@@ -106,15 +106,16 @@ export class FluentAgent extends BaseAgent<FluentAgentInput> {
     super('FluentAgent');
   }
 
-  async call(input: FluentAgentInput): Promise<AgentResponse> {
+  async call(input: FluentAgentInput, signal?: AbortSignal): Promise<AgentResponse> {
     const llm = getLLM();
 
     try {
       const formattedPrompt = await FLUENT_PROMPT.format({ text: input.text });
       const response = await guardLLMInvoke(
-        (signal) => llm.invoke(formattedPrompt as unknown as string, { signal } as any),
+        (innerSignal) => llm.invoke(formattedPrompt as unknown as string, { signal: innerSignal } as any),
         {
           operationName: 'FluentAgent.llm',
+          parentSignal: signal,
         }
       );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
