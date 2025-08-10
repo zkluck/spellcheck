@@ -63,18 +63,44 @@ yarn install
 创建`.env.local`文件并添加以下内容：
 
 ```
-# OpenAI 相关
+# OpenAI / 第三方 API（必需）
 OPENAI_API_KEY=your_openai_api_key
+# 若使用第三方网关，可设置 Base URL
 OPENAI_BASE_URL=your_openai_base_url
 
-# LangChain/分析配置
-ANALYZE_TIMEOUT_MS=8000   # analyzeText 超时（毫秒）
+# 后端分析
+ANALYZE_TIMEOUT_MS=8000    # analyzeText 超时（毫秒）
 
-# LLM 速率限制（可选，如未启用可忽略）
-# 令牌桶容量与每秒补充速率（与 llm-guard.ts 配置一致）
-RATE_LIMIT_CAPACITY=30
-RATE_LIMIT_REFILL_PER_SEC=15
+# 前端公开配置（浏览器可读，勿放敏感信息）
+NEXT_PUBLIC_MAX_RETRIES=3
+NEXT_PUBLIC_SSE_IDLE_MS=20000
+NEXT_PUBLIC_BASE_DELAY_MS=600
+NEXT_PUBLIC_TOTAL_TIMEOUT_MS=60000
+NEXT_PUBLIC_BACKOFF_MIN_MS=400
+NEXT_PUBLIC_BACKOFF_MAX_MS=8000
+
+# E2E 测试（本地/CI 使用；生产请勿开启）
+E2E_ENABLE=0
 ```
+
+## 环境变量说明
+
+- **后端**（`src/lib/config.ts`）
+  - `ANALYZE_TIMEOUT_MS`：`analyzeText` 超时时间（毫秒）。
+  - `E2E_ENABLE`：启用 E2E 场景模拟的后端分支，仅供本地/CI。
+
+- **模型/LLM**（`src/lib/langchain/models/llm-config.ts`）
+  - 通用模型：`OPENAI_MODEL`、`OPENAI_TEMPERATURE`、`OPENAI_MAX_TOKENS`、`OPENAI_TIMEOUT_MS`、`OPENAI_MAX_RETRIES`。
+  - 轻量模型：`OPENAI_LIGHT_MODEL`、`OPENAI_LIGHT_TEMPERATURE`、`OPENAI_LIGHT_MAX_TOKENS`、`OPENAI_LIGHT_TIMEOUT_MS`、`OPENAI_LIGHT_MAX_RETRIES`。
+  - 公共：`OPENAI_API_KEY`（必填）、`OPENAI_BASE_URL`（可选第三方网关）。
+
+- **前端公开配置**（`src/lib/feConfig.ts`）
+  - `NEXT_PUBLIC_MAX_RETRIES`、`NEXT_PUBLIC_SSE_IDLE_MS`、`NEXT_PUBLIC_BASE_DELAY_MS`、`NEXT_PUBLIC_TOTAL_TIMEOUT_MS`、
+    `NEXT_PUBLIC_BACKOFF_MIN_MS`、`NEXT_PUBLIC_BACKOFF_MAX_MS`。
+
+- 提示
+  - 生产环境不要启用 `E2E_ENABLE`。
+  - 完整清单与默认值见 `.env.example`。
 
 4. 启动开发服务器
 

@@ -36,15 +36,4 @@ export const config = {
     analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 20000),
   },
   
-  /**
-   * API 相关配置
-   */
-  api: {
-    /**
-     * API 速率限制（每分钟请求数）
-     * 默认: 60
-     * 环境变量: API_RATE_LIMIT
-     */
-    rateLimit: getEnvNumber('API_RATE_LIMIT', 60),
-  },
 };

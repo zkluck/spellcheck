@@ -70,7 +70,7 @@ export default function Home() {
         }
       });
 
-    type AttemptOutcome = { outcome: 'success' | 'terminal' | 'retry'; reason?: string };
+    type AttemptOutcome = { outcome: 'success' | 'terminal' | 'retry'; reason?: string; waitMs?: number };
 
 
 
@@ -129,7 +129,7 @@ export default function Home() {
           const scenarioHdr = response.headers.get('X-E2E-Scenario');
           let stage = response.headers.get('X-E2E-Stage');
           if (!stage) {
-            if (response.status === 429 || response.status >= 500) stage = 'first';
+            if (response.status >= 500) stage = 'first';
             else {
               const ct = response.headers.get('Content-Type') || '';
               if (response.ok && ct.includes('text/event-stream')) stage = 'ok';
@@ -140,15 +140,16 @@ export default function Home() {
 
         const contentType = response.headers.get('Content-Type') || '';
 
-        // JSON 路径：一次性结果或错误，不重试（视状态而定）
+        // JSON 路径：一次性结果或错误
         if (contentType.includes('application/json')) {
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
             const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : '服务暂时不可用，请稍后再试。';
-            // 4xx 视为终止，5xx 可重试
+            // 5xx 可重试
             if (response.status >= 500) {
               return { outcome: 'retry', reason: 'http-5xx' };
             }
+            // 其他 4xx 终止并提示
             dispatch({ type: 'SET_API_ERROR', payload: msg });
             return { outcome: 'terminal' };
           }
@@ -222,8 +223,12 @@ export default function Home() {
                   dispatch({ type: 'FINISH_CHECK', payload: json.errors });
                   gotFinal = true;
                 } else if (json.type === 'error') {
-                  // 服务器明确错误：终止
-                  dispatch({ type: 'SET_API_ERROR', payload: `处理出错: ${json.message}` });
+                  // 服务器明确错误：终止（包含标准化 code 与 requestId）
+                  const code: string = json.code || 'internal';
+                  const rid: string | undefined = json.requestId || reqId;
+                  const msg = code === 'aborted' ? '请求已中止。' : `处理出错: ${json.message}`;
+                  const banner = rid ? `${msg}（请求ID: ${rid}）` : msg;
+                  dispatch({ type: 'SET_API_ERROR', payload: banner });
                   return { outcome: 'terminal' };
                 }
               } catch (e) {
@@ -260,8 +265,8 @@ export default function Home() {
           setRetryStatus(null);
           return;
         }
-        // retry 分支：指数退避 + 抖动，期间若用户取消则中断
-        const waitMs = Math.min(calcBackoffMs(attempt, res.reason), remaining());
+        // retry 分支：指数退避 + 抖动
+        const waitMs = Math.min((res.waitMs ?? calcBackoffMs(attempt, res.reason)), remaining());
         setRetryStatus(`${reasonLabel(res.reason)}，${Math.round(waitMs / 100) / 10}s 后重试 (${attempt}/${maxRetries})…`);
         await sleep(waitMs, controller.signal);
       }

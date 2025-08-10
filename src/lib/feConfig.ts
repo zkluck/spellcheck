@@ -20,7 +20,4 @@ export const feConfig = {
   // 退避范围（毫秒）
   backoffMinMs: num(process.env.NEXT_PUBLIC_BACKOFF_MIN_MS, 400),
   backoffMaxMs: num(process.env.NEXT_PUBLIC_BACKOFF_MAX_MS, 8000),
-  // 服务器 Retry-After 的等待夹取范围（毫秒）
-  retryAfterMinMs: num(process.env.NEXT_PUBLIC_RETRY_AFTER_MIN_MS, 300),
-  retryAfterMaxMs: num(process.env.NEXT_PUBLIC_RETRY_AFTER_MAX_MS, 15000),
 };

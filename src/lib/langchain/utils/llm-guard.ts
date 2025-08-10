@@ -99,12 +99,12 @@ function isAbortError(err: unknown): boolean {
 }
 
 function isRetryableError(err: unknown): boolean {
-  // 429 / 5xx / 408 / 连接类错误
+  // 5xx / 408 / 连接类错误
   const msg = String((err as any)?.message ?? err ?? '').toLowerCase();
   const code = (err as any)?.status ?? (err as any)?.statusCode;
   const sysCode = (err as any)?.code; // e.g., ETIMEDOUT, ENOTFOUND
   if (typeof code === 'number') {
-    if (code === 429 || code === 408) return true;
+    if (code === 408) return true;
     if (code >= 500 && code < 600) return true;
   }
   if (msg.includes('rate limit') || msg.includes('timeout') || msg.includes('timed out')) return true;
