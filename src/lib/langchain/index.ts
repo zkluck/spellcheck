@@ -27,23 +27,38 @@ export async function analyzeText(
     return [];
   }
 
+  // 使用内部 AbortController 将上游信号与超时合并，确保到时主动中止底层 LLM 调用
+  const TIMEOUT_MS = config.langchain.analyzeTimeoutMs;
+  const ac = new AbortController();
+  let upstreamAbortListener: (() => void) | null = null;
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     const startedAt = Date.now();
     logger.info('analyzeText:start', { enabledTypes: options.enabledTypes, textLength: text.length });
 
-    const TIMEOUT_MS = config.langchain.analyzeTimeoutMs;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      const id = setTimeout(() => {
-        clearTimeout(id);
-        reject(new Error(`analyzeText timeout after ${TIMEOUT_MS}ms`));
-      }, TIMEOUT_MS);
-    });
+    // 若上游已中止，直接抛出
+    if (signal?.aborted) {
+      const err = new Error('analyzeText aborted by upstream');
+      (err as any).name = 'AbortError';
+      throw err;
+    }
 
-    // 将 streamCallback 传递给 coordinator
-    const result = await Promise.race<AgentResponse | never>([
-      coordinator.call({ text, options }, streamCallback, signal),
-      timeoutPromise,
-    ]);
+    // 合并上游中止
+    if (signal) {
+      upstreamAbortListener = () => ac.abort();
+      signal.addEventListener('abort', upstreamAbortListener);
+    }
+
+    // 超时中止
+    if (TIMEOUT_MS > 0 && Number.isFinite(TIMEOUT_MS)) {
+      timeoutTimer = setTimeout(() => {
+        ac.abort();
+      }, TIMEOUT_MS);
+    }
+
+    // 直接调用 coordinator，并传入合并后的 signal
+    const result = await coordinator.call({ text, options }, streamCallback, ac.signal);
 
     const elapsedMs = Date.now() - startedAt;
     logger.info('analyzeText:done', { 
@@ -53,12 +68,24 @@ export async function analyzeText(
     });
     return result.result;
   } catch (error) {
-    logger.error('analyzeText:error', { error: (error as Error)?.message });
+    const isAbort = (error as any)?.name === 'AbortError';
+    const msg = (error as Error)?.message ?? String(error);
+    logger.error('analyzeText:error', { error: msg, aborted: isAbort });
+
     // 在流式传输中，错误已在 API 路由层处理，这里返回空数组即可
     if (streamCallback) {
       return [];
     }
-    // 对于非流式调用，向上抛出错误
-    throw error;
+
+    // 非流式：若为内部超时/中止，保持与旧行为一致抛出超时错误
+    if (isAbort) {
+      const err = new Error(`analyzeText timeout after ${TIMEOUT_MS}ms`);
+      (err as any).name = 'AbortError';
+      throw err;
+    }
+    throw error as Error;
+  } finally {
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+    if (signal && upstreamAbortListener) signal.removeEventListener('abort', upstreamAbortListener);
   }
 }

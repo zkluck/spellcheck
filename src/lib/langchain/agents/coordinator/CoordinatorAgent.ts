@@ -155,13 +155,9 @@ export class CoordinatorAgent {
 
     let refined: ErrorItem[] = [];
     try {
-      // Reviewer 内部超时兜底，避免整体 analyze 超时
-      const REVIEW_TIMEOUT_MS = Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8));
+      // ReviewerAgent 自身已在 guard 层设置超时（默认 0.8 * analyzeTimeoutMs），并且支持父级 AbortSignal；无需额外 Promise.race
       if (runReviewer) {
-        const reviewRes = await Promise.race<AgentResponse>([
-          this.reviewerAgent.call(reviewerInput as any, signal),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`ReviewerAgent.timeout.${REVIEW_TIMEOUT_MS}`)), REVIEW_TIMEOUT_MS)) as unknown as Promise<AgentResponse>,
-        ]);
+        const reviewRes = await this.reviewerAgent.call(reviewerInput as any, signal);
         if (streamCallback) {
           streamCallback({ agent: 'reviewer', response: reviewRes });
         }

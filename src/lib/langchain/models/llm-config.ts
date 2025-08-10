@@ -39,15 +39,15 @@ export function getLLM(options: LLMOptions = {}): BaseChatModel {
   const timeout = options.timeoutMs ?? readNumber('OPENAI_TIMEOUT_MS');
   const maxRetries = options.maxRetries ?? readNumber('OPENAI_MAX_RETRIES', 2);
 
-  // 创建 ChatOpenAI 实例
+  // 适配 @langchain/openai ^0.0.14：使用 modelName / openAIApiKey / configuration.baseURL
   return new ChatOpenAI({
     modelName,
-    temperature, // 低温度，减少随机性，提高一致性
-    maxTokens, // 最大输出 token 数
-    openAIApiKey: apiKey, // 正确的属性名是 openAIApiKey，而不是 apiKey
+    temperature,
+    maxTokens,
+    openAIApiKey: apiKey,
     ...(typeof maxRetries === 'number' ? { maxRetries } : {}),
     ...(typeof timeout === 'number' ? { timeout } : {}),
-    ...(baseURL ? { configuration: { baseURL } } : {}), // 正确的配置方式
+    ...(baseURL ? { configuration: { baseURL } } : {}),
   });
 }
 
@@ -73,14 +73,14 @@ export function getLightLLM(options: LLMOptions = {}): BaseChatModel {
   const timeout = options.timeoutMs ?? readNumber('OPENAI_LIGHT_TIMEOUT_MS');
   const maxRetries = options.maxRetries ?? readNumber('OPENAI_LIGHT_MAX_RETRIES', 2);
 
-  // 创建 ChatOpenAI 实例
+  // 适配 @langchain/openai ^0.0.14：使用 modelName / openAIApiKey / configuration.baseURL
   return new ChatOpenAI({
     modelName,
     temperature,
     maxTokens,
-    openAIApiKey: apiKey, // 正确的属性名是 openAIApiKey
+    openAIApiKey: apiKey,
     ...(typeof maxRetries === 'number' ? { maxRetries } : {}),
     ...(typeof timeout === 'number' ? { timeout } : {}),
-    ...(baseURL ? { configuration: { baseURL } } : {}), // 正确的配置方式
+    ...(baseURL ? { configuration: { baseURL } } : {}),
   });
 }
