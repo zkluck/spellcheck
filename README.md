@@ -303,6 +303,51 @@ spellcheck/
 - `CoordinatorAgent`：顺序编排与索引映射正确性（Basic 应用后 Fluent 映射回原文）。
 - `merge.ts`：类型优先级与重叠裁决一致性。
 
+## 测试与 CI
+
+### 本地测试
+
+- 类型检查
+
+```bash
+npm run type-check
+```
+
+- 单元测试
+
+```bash
+npm run test        # 一次性运行
+npm run test:watch  # 监听模式
+```
+
+- 端到端测试（Playwright）
+
+```bash
+npx playwright install chromium  # 首次仅需一次，安装浏览器
+npm run e2e                      # 运行 E2E
+```
+
+说明：E2E 测试将使用生产模式服务器，自动执行 `build + start` 并在端口 `3001` 启动；`baseURL` 为 `http://localhost:3001`。Playwright 会在启动被测服务时注入以下环境变量：
+
+- `PORT=3001`
+- `E2E_ENABLE=1`（仅用于本地/CI 的模拟场景分支）
+- `NEXT_PUBLIC_SSE_IDLE_MS`, `NEXT_PUBLIC_TOTAL_TIMEOUT_MS`, `NEXT_PUBLIC_BASE_DELAY_MS`, `NEXT_PUBLIC_BACKOFF_MIN_MS`, `NEXT_PUBLIC_BACKOFF_MAX_MS`, `NEXT_PUBLIC_MAX_RETRIES`
+
+如需调整端口或基址，请修改 `playwright.config.ts` 的 `use.baseURL` 与 `webServer.port`/`env.PORT`。
+
+### 持续集成（GitHub Actions）
+
+- 工作流：`.github/workflows/ci.yml`
+- 运行环境：Node.js 20，Ubuntu
+- 步骤：依赖安装（`npm ci`）→ 类型检查（`npm run type-check`）→ 单元测试（`npm run test:ci`）→ 安装浏览器（`npx playwright install --with-deps chromium`）→ E2E（`npm run e2e`）。
+- CI 中使用占位密钥 `OPENAI_API_KEY=dummy_for_ci_only` 以避免密钥缺失导致构建失败。E2E 使用模拟分支，不会发出真实请求。
+
+### 常见问题排查
+
+- “Response body object should not be disturbed or locked”：Next 开发模式在流式请求下可能出现。E2E 已切换至生产模式（`build + start`）避免该问题。
+- 端口占用或超时：E2E 使用 `3001` 端口，确保空闲；或在 `playwright.config.ts` 修改端口与 `use.baseURL`。`webServer.timeout` 默认为 `120s`，可按需调整。
+- 浏览器未安装：执行 `npx playwright install chromium`。
+
 ### 自定义检测规则
 
 可以通过修改各智能体的实现来自定义检测规则和优先级。

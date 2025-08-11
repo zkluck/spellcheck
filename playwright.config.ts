@@ -8,16 +8,18 @@ export default defineConfig({
   fullyParallel: true,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:3001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run dev',
-    port: 3000,
+    command: 'npm run build && npm run start',
+    port: 3001,
+    timeout: 120_000,
     reuseExistingServer: false,
     env: {
+      PORT: '3001',
       E2E_ENABLE: '1',
       // 前端调参：缩短空闲与总时长，提升 E2E 速度与确定性
       NEXT_PUBLIC_SSE_IDLE_MS: '1500',

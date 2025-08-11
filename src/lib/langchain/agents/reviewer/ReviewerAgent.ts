@@ -3,7 +3,7 @@ import { AgentResponse } from '@/types/agent';
 import type { ErrorItem } from '@/types/error';
 import { getLLM } from '@/lib/langchain/models/llm-config';
 import { extractJsonArrayFromContent } from '@/lib/langchain/utils/llm-output';
-import { PromptTemplate } from '@langchain/core/prompts';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
@@ -48,64 +48,47 @@ const ReviewDecisionSchema = z.object({
   }
 });
 
-const REVIEW_PROMPT = new PromptTemplate({
-  inputVariables: ['text', 'candidates'],
-  template: `你是一位严格的中文文本“错误审阅/裁决”专家。你将收到一段原文和若干“候选错误”，请逐条给出判决：accept（接受）、reject（拒绝）、modify（接受但需修改 span 或建议）。
+const REVIEW_PROMPT = ChatPromptTemplate.fromMessages([
+  [
+    'system',
+    `
+你是严格的中文文本“错误审阅/裁决”专家。请对每条候选错误给出 accept/reject/modify 判决。
 
-一、范围与原则
-1) 对客观、可验证的基础错误做正向裁决；对风格优化/表达润色等主观改写通常拒绝（reject）。若候选的 type 为 "fluency"，且在不改变原意的前提下能显著提升可读性，可接受（accept）或酌情 modify。
-2) 最小编辑原则：若接受，修改应尽可能小，不改变原意，不做大段改写。
-3) 不新增候选：只能对给定 id 做判决，禁止引入新项。
+一、核心原则与约束
+1) 覆盖性：必须对每个输入候选（按 id）都产出一条裁决，禁止新增或遗漏。
+2) 输出格式：仅输出 JSON 数组，禁止任何额外文字/markdown。输出必须以 "[" 开头、以 "]" 结尾；若 candidates 为空则输出 []。
+3) 裁决范围：对客观基础错误（拼写/标点/语法）做正向裁决；对主观风格化改写通常 reject；对不改变原意的 fluency 优化可酌情 accept/modify。
+4) 最小编辑：接受的修改应尽可能小，不改变原意。
+5) 索引合法性：若候选索引非法或无法在原文定位，请 reject。
 
-二、索引与合法性
-1) 所有起止索引均基于 JavaScript 字符串下标（UTF-16），使用原文进行验证。
-2) 若无法确保索引合法（end > start 且在原文范围内）或无法在原文定位到候选文本，请直接 reject。
-3) 若选择 modify，并提供 start/end，它们必须使原文 slice(start, end) 与最终决定的文本相匹配（由系统据此回填 text）；否则请 reject。
-
-三、输出格式（仅输出 JSON 数组，不要任何额外文字）
-每个元素：
-- id: string（与输入候选一致）
+二、输出字段
+- id: string (与输入候选一致)
 - status: "accept" | "reject" | "modify"
-- start?: number（仅在 modify 需要调整 span 时提供）
-- end?: number（仅在 modify 需要调整 span 时提供）
-- suggestion?: string（在 accept/modify 时允许给出更准确的建议）
-- explanation?: string（简要客观说明）
-- confidence?: number（0~1，确定性高时再提供）
+- start?: number (仅在 modify 且需调整 span 时提供)
+- end?: number (同上，且 end > start)
+- suggestion?: string (在 accept/modify 时可提供更准确的建议)
+- explanation?: string (简要客观说明)
+- confidence?: number (0~1，确定性高时提供)
 
-四、判决指引
-- accept：确定该候选为客观错误，且其 span 与建议合理。
-- modify：候选大体正确，但需要微调 span 或 suggestion 才精确；给出 start/end/suggestion 中必要的字段。
-- reject：不确定、无法定位、超出“基础错误”范围、或属于风格/表达提升。
-
+三、判决指引
+- accept: 候选客观正确，且 span/suggestion 合理。
+- modify: 候选大体正确，但需微调 span 或 suggestion。给出必要的 start/end/suggestion 字段。
+- reject: 不确定、无法定位、超出范围、或属于不必要的主观风格改写。
+`.trim()
+  ],
+  [
+    'human',
+    `
 原文：
 {text}
 
 候选列表（JSON）：
 {candidates}
 
-示例 1（接受）：
-输入候选：[{{"id":"a","text":"利害","start":6,"end":8,"suggestion":"厉害","type":"spelling"}}]
-输出：
-[
-  {{"id":"a","status":"accept","confidence":0.9}}
-]
-
-示例 2（修改 span）：
-原文："今天下雨了,我没带伞。"（半角逗号应为全角）
-候选：[{{"id":"b","text":",","start":5,"end":6,"suggestion":"，","type":"punctuation"}}]
-输出：
-[
-  {{"id":"b","status":"accept","confidence":0.9}}
-]
-
-示例 3（拒绝：风格/流畅度类）：
-候选：[{{"id":"c","text":"非常","start":2,"end":4,"suggestion":"很","type":"fluency"}}]
-输出：
-[
-  {{"id":"c","status":"reject","explanation":"风格化改写，非客观错误"}}
-]
-`
-});
+请对以上所有候选逐一裁决，仅输出 JSON 数组：
+`.trim()
+  ],
+]);
 
 export class ReviewerAgent {
   async call(input: ReviewerInput, signal?: AbortSignal): Promise<AgentResponse & { decisions?: z.infer<typeof ReviewDecisionSchema>[] }> {
@@ -116,12 +99,12 @@ export class ReviewerAgent {
 
     const llm = getLLM();
     try {
-      const prompt = await REVIEW_PROMPT.format({
+      const messages = await REVIEW_PROMPT.formatMessages({
         text: input.text,
         candidates: JSON.stringify(input.candidates, null, 2),
       });
       const response = await guardLLMInvoke(
-        (innerSignal) => llm.invoke(prompt as unknown as string, { signal: innerSignal } as any),
+        (innerSignal) => llm.invoke(messages as any, { signal: innerSignal } as any),
         { operationName: 'ReviewerAgent.llm', timeoutMs: Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8)), parentSignal: signal }
       );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);

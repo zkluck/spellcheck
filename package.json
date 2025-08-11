@@ -12,9 +12,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ci": "vitest run --coverage",
-    "e2e": "powershell -Command \"$env:E2E_ENABLE='1'; playwright test\"",
-    "e2e:ui": "powershell -Command \"$env:E2E_ENABLE='1'; playwright test --ui\"",
-    "e2e:headed": "powershell -Command \"$env:E2E_ENABLE='1'; playwright test --headed\"",
+    "e2e": "cross-env E2E_ENABLE=1 playwright test",
+    "e2e:ui": "cross-env E2E_ENABLE=1 playwright test --ui",
+    "e2e:headed": "cross-env E2E_ENABLE=1 playwright test --headed",
     "prepare": "husky install"
   },
   "dependencies": {
