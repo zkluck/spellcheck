@@ -5,8 +5,6 @@ import type { AnalyzeOptions } from '@/types/agent';
 import { mergeErrors } from '@/lib/langchain/merge';
 import styles from './AnalyzerPanel.module.scss';
 
-type AnalyzeOptionsWithReviewer = AnalyzeOptions & { reviewer?: 'on' | 'off' };
-
 type SourceTag = 'basic' | 'fluent' | 'final';
 
 // 轻量级 class 合并
@@ -37,7 +35,7 @@ export const AnalyzerPanel: React.FC = () => {
     'grammar',
     'fluency',
   ]);
-  const [reviewer, setReviewer] = useState<'on' | 'off'>('on');
+  // Reviewer 开关已移除：由后端 WORKFLOW_PIPELINE 决定
 
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -59,9 +57,8 @@ export const AnalyzerPanel: React.FC = () => {
     setFinalList([]);
     setSelectedIds(new Set());
 
-    const options: AnalyzeOptionsWithReviewer = {
+    const options: AnalyzeOptions = {
       enabledTypes,
-      reviewer, // on/off
     };
 
     try {
@@ -100,7 +97,7 @@ export const AnalyzerPanel: React.FC = () => {
         abortRef.current = null;
       }
     }
-  }, [text, enabledTypes, reviewer]);
+  }, [text, enabledTypes]);
 
   const onCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -248,28 +245,7 @@ export const AnalyzerPanel: React.FC = () => {
           </label>
         </div>
 
-        <div className={styles.reviewSwitch}>
-          <label className={cx(styles.reviewSwitch__btn, reviewer === 'on' && styles['reviewSwitch__btn--active'])}>
-            <input
-              type="radio"
-              name="reviewer"
-              value="on"
-              checked={reviewer === 'on'}
-              onChange={() => setReviewer('on')}
-            />
-            开
-          </label>
-          <label className={cx(styles.reviewSwitch__btn, reviewer === 'off' && styles['reviewSwitch__btn--active'])}>
-            <input
-              type="radio"
-              name="reviewer"
-              value="off"
-              checked={reviewer === 'off'}
-              onChange={() => setReviewer('off')}
-            />
-            关
-          </label>
-        </div>
+        {/* Reviewer 开关已移除 */}
 
         <button
           className={styles.btnPrimary}
@@ -283,7 +259,7 @@ export const AnalyzerPanel: React.FC = () => {
       <div className={styles.columns}>
         {renderList('基础错误（Basic）', basicList, 'basic')}
         {renderList('通顺错误（Fluent）', fluentList, 'fluent')}
-        {reviewer === 'on' && renderList('最终合并（Final）', finalList)}
+        {renderList('最终合并（Final）', finalList)}
       </div>
 
       <div className={styles.preview}>

@@ -94,6 +94,14 @@ export class BasicErrorAgent extends BaseAgent<BasicErrorAgentInput> {
         {
           operationName: 'BasicErrorAgent.llm',
           parentSignal: signal,
+          logFields: {
+            text: input.text,
+            previous: {
+              issuesJson: input.previous?.issuesJson ?? '',
+              patchedText: input.previous?.patchedText ?? '',
+              runIndex: input.previous?.runIndex,
+            },
+          },
         }
       );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);

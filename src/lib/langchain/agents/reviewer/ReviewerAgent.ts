@@ -8,6 +8,12 @@ import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
 
+/**
+ * ReviewerAgent 执行说明：
+ * - 执行时机与是否启用由后端工作流配置 WORKFLOW_PIPELINE 决定，前端与 API 均不提供 reviewer 开关。
+ * - 如工作流未包含 reviewer 节点，则不会运行本 Agent。
+ */
+
 // 输入：原文 + 候选列表（来自各 Agent 的检测结果）
 const ReviewerInputSchema = z.object({
   text: z.string(),
@@ -105,7 +111,15 @@ export class ReviewerAgent {
       });
       const response = await guardLLMInvoke(
         (innerSignal) => llm.invoke(messages as any, { signal: innerSignal } as any),
-        { operationName: 'ReviewerAgent.llm', timeoutMs: Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8)), parentSignal: signal }
+        { 
+          operationName: 'ReviewerAgent.llm', 
+          timeoutMs: Math.max(5000, Math.floor(config.langchain.analyzeTimeoutMs * 0.8)), 
+          parentSignal: signal,
+          logFields: {
+            text: input.text,
+            candidates: input.candidates,
+          },
+        }
       );
       const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
       const arr = extractJsonArrayFromContent(response.content);

@@ -21,6 +21,8 @@ export interface GuardOptions extends Partial<RetryOptions>, TimeoutOptions, Par
   operationName?: string;
   // 父级取消信号（例如来自 HTTP request.signal），将与超时信号合并
   parentSignal?: AbortSignal;
+  // 需要记录到日志的输入字段（例如 prompt 变量、候选列表等）
+  logFields?: unknown;
 }
 
 function readNumber(envName: string, fallback?: number): number | undefined {
@@ -114,6 +116,48 @@ function isRetryableError(err: unknown): boolean {
     if (['ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH', 'ENOTFOUND', 'ECONNREFUSED'].includes(sc)) return true;
   }
   return false;
+}
+
+// 将任意输入裁剪为适合日志的结构，避免过大或循环
+function makeSafeForLog(value: unknown, depth = 0): unknown {
+  const MAX_STR = 2000; // 单字段最大字符串长度
+  const MAX_ARR = 50;   // 数组最多记录前 N 项
+  const MAX_OBJ_KEYS = 50; // 对象最多记录前 N 个键
+  const MAX_DEPTH = 4;  // 最大递归深度
+
+  if (depth >= MAX_DEPTH) return '…';
+
+  if (typeof value === 'string') {
+    return value.length > MAX_STR ? value.slice(0, MAX_STR) + `…(truncated ${value.length - MAX_STR})` : value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || value == null) return value as any;
+  if (Array.isArray(value)) {
+    const arr = value.slice(0, MAX_ARR).map((v) => makeSafeForLog(v, depth + 1));
+    if (value.length > MAX_ARR) arr.push(`…(+${value.length - MAX_ARR} more)`);
+    return arr;
+  }
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    try {
+      const rec = value as Record<string, unknown>;
+      const keys = Object.keys(rec).slice(0, MAX_OBJ_KEYS);
+      for (const k of keys) {
+        out[k] = makeSafeForLog(rec[k], depth + 1);
+      }
+      const allKeys = Object.keys(rec);
+      if (allKeys.length > keys.length) {
+        out['…extraKeys'] = `+${allKeys.length - keys.length} keys`;
+      }
+    } catch {
+      return String(value);
+    }
+    return out;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return String(value);
+  }
 }
 
 function createAbortError(): Error {
@@ -232,6 +276,14 @@ export async function guardLLMInvoke<T>(
   const timeoutMs = opts.timeoutMs ?? readNumber('LLM_TIMEOUT_MS') ?? undefined;
 
   logger.debug('llm.invoke.start', { operation, timeoutMs, retryOpts });
+  if (typeof opts.logFields !== 'undefined') {
+    try {
+      const fields = makeSafeForLog(opts.logFields);
+      logger.info('llm.invoke.input', { operation, fields });
+    } catch (e) {
+      logger.warn('llm.invoke.input_log_failed', { operation, error: String((e as any)?.message ?? e) });
+    }
+  }
   const result = await withRetry(() => withTimeout((signal) => invoker(signal), timeoutMs, opts.parentSignal), {
     ...retryOpts,
     operationName: operation,

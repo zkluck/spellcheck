@@ -6,11 +6,9 @@ import { randomUUID } from 'crypto';
 // 明确使用 Node.js 运行时，确保 SSE 与服务端能力可用
 export const runtime = 'nodejs';
 
-// 定义请求体和选项的 Zod Schema
+// 定义请求体和选项的 Zod Schema（Reviewer 开关已移除，统一由 pipeline 决定）
 const OptionsSchema = z.object({
   enabledTypes: z.array(z.enum(['grammar', 'spelling', 'punctuation', 'fluency'])).nonempty(),
-  // ReviewerAgent 开关（默认 on）。可选传入以覆盖默认值
-  reviewer: z.enum(['on', 'off']).optional(),
 });
 const BodySchema = z.object({
   text: z.string().min(1, 'text 不能为空'),

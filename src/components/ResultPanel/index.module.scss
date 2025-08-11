@@ -385,8 +385,9 @@
   color: #666;
   margin: 0;
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .error-item__explanation-label {
@@ -394,6 +395,7 @@
   color: #444;
   margin-right: 4px;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .error-item__explanation-text {
@@ -401,6 +403,10 @@
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.error-item__explanation--expanded .error-item__explanation-text {
+  flex-basis: 100%;
 }
 
 .error-item__explanation-text--clamped {
@@ -423,4 +429,12 @@
 
 .error-item__explanation-toggle:hover {
   text-decoration: underline;
+}
+
+.error-item__explanation--expanded .error-item__explanation-toggle {
+  order: 3;            /* 放到下一行 */
+  margin-left: 0;      /* 覆盖默认的向右推 */
+  width: 100%;
+  text-align: right;   /* 下一行右对齐 */
+  padding-top: 4px;
 }

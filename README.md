@@ -12,7 +12,7 @@
 
 - **结果保全与来源标记**：同时保留 Basic 与 Fluent 的全部错误候选，供用户选择；每条错误都带有 `metadata.source`（`basic`/`fluent`）。
 
-- **Reviewer 可开关**：通过 `AnalyzeOptions.reviewer?: 'on' | 'off'` 控制是否启用 Reviewer 审阅阶段（默认 `on`）。
+- 审阅阶段由后端工作流配置控制：通过环境变量 `WORKFLOW_PIPELINE` 决定是否执行 Reviewer。前端不提供开关。
 
 - **实时编辑**：用户可以在编辑器中直接输入文本，并获得即时的检测结果
 
@@ -26,7 +26,7 @@
 
 - **前端**：Next.js 14 + React 18 + TypeScript 5 + SCSS（BEM 规范，无 & 嵌套）
 - **后端**：Next.js App Router API Routes（Node 环境）
-- **AI**：LangChain 0.1.x 多智能体串联（Basic → Fluent → Reviewer，可开关 Reviewer），统一 LLM 保护调用（`guardLLMInvoke`），令牌桶限流（`llm-guard.ts`）
+- **AI**：LangChain 0.1.x 多智能体串联（Basic → Fluent → Reviewer，是否执行由 `WORKFLOW_PIPELINE` 决定），统一 LLM 保护调用（`guardLLMInvoke`），令牌桶限流（`llm-guard.ts`）
 - **运行时校验**：Zod（API 入参与出参严格校验）
 - **日志**：结构化 logger（`src/lib/logger.ts`）
 - **配置**：统一配置模块（`src/lib/config.ts`，支持 .env）
@@ -137,8 +137,7 @@ yarn dev
 {
   "text": "需要检查的文本",
   "options": {
-    "enabledTypes": ["grammar", "spelling", "punctuation", "fluency"],
-    "reviewer": "on" // 可选: "on" | "off"，默认 on
+    "enabledTypes": ["grammar", "spelling", "punctuation", "fluency"]
   }
 }
 ```
@@ -161,8 +160,7 @@ yarn dev
   ],
   "meta": {
     "elapsedMs": 123,
-    "enabledTypes": ["grammar", "spelling"],
-    "reviewer": "on"
+    "enabledTypes": ["grammar", "spelling"]
   }
 }
 ```
@@ -208,7 +206,7 @@ spellcheck/
  │   │   ├── Home/
  │   │   ├── ResultPanel/
  │   │   ├── TextEditor/
- │   │   └── AnalyzerPanel.tsx   # 示例：分栏展示 Basic/Fluent/Final，支持 reviewer 开关与本地预览
+ │   │   └── AnalyzerPanel.tsx   # 示例：分栏展示 Basic/Fluent/Final（Reviewer 开关已移除：由后端 WORKFLOW_PIPELINE 决定）
  │   ├── lib/
  │   │   ├── config.ts           # 统一配置（读取 .env）
 │   │   ├── logger.ts           # 结构化日志
@@ -222,7 +220,7 @@ spellcheck/
 │   │           ├── coordinator/CoordinatorAgent.ts  # 顺序编排与索引映射
 │   │           ├── basic/BasicErrorAgent.ts         # 基础错误检测（guardLLMInvoke）
 │   │           ├── fluent/FluentAgent.ts            # 流畅/表达优化检测
-│   │           └── reviewer/ReviewerAgent.ts        # 审阅与最终裁决（可开关）
+│   │           └── reviewer/ReviewerAgent.ts        # 审阅与最终裁决（由 WORKFLOW_PIPELINE 控制，前端无开关）
 │   └── types/                  # 类型定义（ErrorItem/AnalyzeOptions 等）
 ├── tests/
 │   ├── unit/                   # 单元测试（Vitest）
@@ -247,7 +245,7 @@ spellcheck/
 1. BasicErrorAgent 在原文上检测，返回基础错误候选（spelling/punctuation/grammar）。
 2. 将基础候选进行去重与冲突解决（`mergeErrors()`），应用非重叠修复以生成“临时修复文本”，并构建“修复文本索引 → 原文索引”的映射。
 3. FluentAgent 在临时修复文本上检测流畅与表达问题，产出的索引通过映射回投至原文坐标系。
-4. 合并 Basic 与 Fluent 的候选，均带 `metadata.source` 标记；若 `reviewer === 'on'`，交由 Reviewer 审阅（accept/reject/modify），否则直接合并返回。
+4. 合并 Basic 与 Fluent 的候选，均带 `metadata.source` 标记；若后端工作流 `WORKFLOW_PIPELINE` 包含 reviewer 节点，则交由 Reviewer 审阅（accept/reject/modify），否则直接合并返回。
 5. 最终使用 `mergeErrors()` 产出稳定、无冲突的结果列表。
 
 ### 智能体 Prompt 规范（关键约束）
@@ -294,7 +292,6 @@ spellcheck/
 - 使用 `analyzeText(text, options, streamCallback)`：
   - `streamCallback` 将依次收到 `agent: 'basic' | 'fluent' | 'reviewer'` 的结果片段，便于分栏实时渲染。
   - 也可直接使用示例组件 `AnalyzerPanel.tsx`。
-- 当 `options.reviewer === 'off'` 时，仅展示 Basic/Fluent 两栏并允许用户直接勾选应用；可用 `mergeErrors()` 在前端对所选项做预览合成。
 
 ### 测试建议
 

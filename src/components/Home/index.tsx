@@ -18,8 +18,7 @@ const enabledTypes = ['grammar', 'spelling', 'punctuation', 'fluency'];
 export default function Home() {
   const [state, dispatch] = useReducer(homeReducer, initialState);
   const { text, errors, apiError, isLoading, activeErrorId, history } = state;
-  // ReviewerAgent 开关，默认 on
-  const [reviewer, setReviewer] = useState<'on' | 'off'>('on');
+  // Reviewer 开关已移除，由后端 pipeline 决定
   // 维护一个全局 AbortController，用于取消上一次请求和组件卸载时清理
   const abortRef = useRef<AbortController | null>(null);
   // 轻量提示：重试状态（不影响 reducer 的 isLoading 流程）
@@ -119,7 +118,7 @@ export default function Home() {
         const response = await fetch('/api/check', {
           method: 'POST',
           headers,
-          body: JSON.stringify({ text, options: { enabledTypes, reviewer } }),
+          body: JSON.stringify({ text, options: { enabledTypes } }),
           signal: controller.signal,
         });
         const reqId = response.headers.get('X-Request-Id') || undefined;
@@ -296,7 +295,7 @@ export default function Home() {
       // 清理总时长定时器
       try { clearTimeout(totalTimeoutId); } catch {}
     }
-  }, [text, reviewer]);
+  }, [text]);
 
   // 允许用户手动取消正在进行的检查
   const handleCancel = useCallback(() => {
@@ -311,7 +310,13 @@ export default function Home() {
   }, []);
 
   const handleApplyError = useCallback((errorToApply: ErrorItem) => {
-    const { start, end, suggestion } = errorToApply;
+    const { start, end, suggestion, text: originalText } = errorToApply;
+    // 空建议或与原文一致：视为无可用修正，按忽略处理，避免被当作删除
+    if (!suggestion || suggestion === originalText) {
+      dispatch({ type: 'IGNORE_ERROR', payload: errorToApply.id });
+      return;
+    }
+
     const newText = text.substring(0, start) + suggestion + text.substring(end);
 
     const offset = suggestion.length - (end - start);
@@ -333,8 +338,11 @@ export default function Home() {
 
   const handleApplyAll = useCallback(() => {
     if (errors.length === 0) return;
+    // 仅应用有有效建议的项（建议非空且不同于原文）
+    const applicable = [...errors].filter(e => e.suggestion && e.suggestion !== e.text);
+    if (applicable.length === 0) return;
     let newText = text;
-    [...errors].sort((a, b) => b.start - a.start).forEach(error => {
+    applicable.sort((a, b) => b.start - a.start).forEach(error => {
       newText = newText.substring(0, error.start) + error.suggestion + newText.substring(error.end);
     });
     dispatch({ type: 'APPLY_ALL_ERRORS', payload: newText });
@@ -351,6 +359,9 @@ export default function Home() {
   const handleSelectError = useCallback((id: string | null) => {
     dispatch({ type: 'SET_ACTIVE_ERROR', payload: id });
   }, []);
+
+  // 仅当存在可应用的建议时，才允许“一键修正”
+  const canApplyAll = errors.some(e => e.suggestion && e.suggestion !== e.text);
 
   return (
     <main className={cn('home__main')}>
@@ -370,32 +381,7 @@ export default function Home() {
               activeErrorId={activeErrorId}
               onSelectError={handleSelectError}
             />
-            {/* Reviewer 开关（简易单选按钮） */}
-            <div className={cn('home__reviewer')}>
-              <span className={cn('home__reviewer-label')}>审阅（Reviewer）</span>
-              <label className={cn('home__reviewer-option')}>
-                <input
-                  className={cn('home__reviewer-input')}
-                  type="radio"
-                  name="reviewer"
-                  value="on"
-                  checked={reviewer === 'on'}
-                  onChange={() => setReviewer('on')}
-                />
-                开
-              </label>
-              <label className={cn('home__reviewer-option')}>
-                <input
-                  className={cn('home__reviewer-input')}
-                  type="radio"
-                  name="reviewer"
-                  value="off"
-                  checked={reviewer === 'off'}
-                  onChange={() => setReviewer('off')}
-                />
-                关
-              </label>
-            </div>
+            {/* Reviewer 开关已移除：由后端 WORKFLOW_PIPELINE 决定是否执行 Reviewer */}
             {isLoading && retryStatus && (
               <div style={{ color: '#667085', fontSize: 12, margin: '4px 0' }}>{retryStatus}</div>
             )}
@@ -414,7 +400,7 @@ export default function Home() {
             onApplyAll={handleApplyAll}
             onUndo={handleUndo}
             canUndo={history.length > 0}
-            canApplyAll={errors.length > 0}
+            canApplyAll={canApplyAll}
             activeErrorId={activeErrorId}
             onSelectError={handleSelectError}
             isLoading={isLoading}

@@ -35,27 +35,14 @@ export const config = {
      */
     analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 20000),
     /**
-     * 决定使用哪些 Agent 的工作流配置（可被环境变量覆盖）
-     *
-     * 环境变量：
-     * - AGENT_BASIC:   true/false/on/off（默认 true）
-     * - AGENT_FLUENT:  true/false/on/off（默认 true）
-     * - AGENT_REVIEWER: on/off（默认 on）
+     * 工作流配置：仅保留可读性强的 pipeline 字符串，自由配置顺序与次数。
+     * 例如：WORKFLOW_PIPELINE="basic*2,reviewer,fluent*1"
+     * 可用 agent：basic | fluent | reviewer；省略 *n 等同 *1。
      */
     workflow: {
-      useBasic: getEnvBoolean('AGENT_BASIC', true),
-      useFluent: getEnvBoolean('AGENT_FLUENT', true),
-      reviewer: getEnvOnOff('AGENT_REVIEWER', 'on'),
-      basicCalls: getEnvNumber('AGENT_BASIC_CALLS', 1),
-      fluentCalls: getEnvNumber('AGENT_FLUENT_CALLS', 1),
-      reviewerCalls: getEnvNumber('AGENT_REVIEWER_CALLS', 1),
+      pipeline: parsePipelineEnv(getEnv('WORKFLOW_PIPELINE', 'basic*1,fluent*1,reviewer*1')),
     } as {
-      useBasic: boolean;
-      useFluent: boolean;
-      reviewer: 'on' | 'off';
-      basicCalls: number;
-      fluentCalls: number;
-      reviewerCalls: number;
+      pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }>;
     },
   },
   
@@ -63,19 +50,28 @@ export const config = {
 
 /**
  * 获取布尔类型环境变量，如果不存在则返回默认值
- * 支持的真值: 1,true,yes,on（忽略大小写）
+ * 支持的真值: 1,true,yes,on（忽略大小写）·
  */
-function getEnvBoolean(key: string, defaultValue: boolean): boolean {
-  const value = process.env[key];
-  if (value === undefined) return defaultValue;
-  return /^(1|true|yes|on)$/i.test(value);
-}
+// 旧的布尔/开关工具已移除，不再使用
 
 /**
- * 获取 on/off 枚举环境变量
+ * 解析 WORKFLOW_PIPELINE 环境变量
+ * 语法示例："basic*2, reviewer, fluent*1"
  */
-function getEnvOnOff(key: string, defaultValue: 'on' | 'off'): 'on' | 'off' {
-  const value = process.env[key];
-  if (value === undefined) return defaultValue;
-  return String(value).toLowerCase() === 'off' ? 'off' : 'on';
+function parsePipelineEnv(raw: string): Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> {
+  const items = String(raw || '').split(',').map(s => s.trim()).filter(Boolean);
+  const out: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> = [];
+  for (const it of items) {
+    const m = it.match(/^(basic|fluent|reviewer)(?:\*(\d+))?$/i);
+    if (!m) continue;
+    const agent = m[1].toLowerCase() as 'basic' | 'fluent' | 'reviewer';
+    const runs = Math.max(1, parseInt(m[2] ?? '1', 10) || 1);
+    out.push({ agent, runs });
+  }
+  if (out.length === 0) return [
+    { agent: 'basic', runs: 1 },
+    { agent: 'fluent', runs: 1 },
+    { agent: 'reviewer', runs: 1 },
+  ];
+  return out;
 }

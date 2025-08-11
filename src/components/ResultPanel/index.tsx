@@ -42,9 +42,8 @@ export default function ResultPanel({
   const toastTimerRef = useRef<number | null>(null);
 
   // 筛选与排序状态
-  const [filterSource, setFilterSource] = useState<'all' | 'basic' | 'fluent' | 'reviewer'>('all');
-  const [filterDecision, setFilterDecision] = useState<'all' | 'accept' | 'reject' | 'modify'>('all');
-  const [conflictOnly, setConflictOnly] = useState<boolean>(false);
+  const [filterSource, setFilterSource] = useState<'all' | 'basic' | 'fluent'>('all');
+  // Reviewer 相关筛选已移除（决策与仅冲突）
   const [sortMode, setSortMode] = useState<'none' | 'confidence-desc'>('confidence-desc');
 
   // 初始化从本地存储恢复偏好
@@ -53,9 +52,9 @@ export default function ResultPanel({
       const raw = localStorage.getItem(PREFS_KEY);
       if (!raw) return;
       const obj = JSON.parse(raw || '{}');
-      if (obj.filterSource) setFilterSource(obj.filterSource);
-      if (obj.filterDecision) setFilterDecision(obj.filterDecision);
-      if (typeof obj.conflictOnly === 'boolean') setConflictOnly(obj.conflictOnly);
+      const fs = obj.filterSource;
+      const isValidSource = (v: any): v is 'all' | 'basic' | 'fluent' => v === 'all' || v === 'basic' || v === 'fluent';
+      if (isValidSource(fs)) setFilterSource(fs);
       if (obj.sortMode) setSortMode(obj.sortMode);
     } catch {}
   }, []);
@@ -65,10 +64,10 @@ export default function ResultPanel({
     try {
       localStorage.setItem(
         PREFS_KEY,
-        JSON.stringify({ filterSource, filterDecision, conflictOnly, sortMode })
+        JSON.stringify({ filterSource, sortMode })
       );
     } catch {}
-  }, [filterSource, filterDecision, conflictOnly, sortMode]);
+  }, [filterSource, sortMode]);
 
   const setTextRef = useCallback((id: string) => (el: HTMLSpanElement | null) => {
     textRefs.current.set(id, el);
@@ -98,14 +97,7 @@ export default function ResultPanel({
     if (filterSource !== 'all') {
       list = list.filter((e) => getSources(e).includes(filterSource));
     }
-    // 过滤：审阅决策
-    if (filterDecision !== 'all') {
-      list = list.filter((e) => getDecision(e) === filterDecision);
-    }
-    // 过滤：仅冲突
-    if (conflictOnly) {
-      list = list.filter((e) => hasConflict(e));
-    }
+    // Reviewer 决策与冲突筛选已移除
     // 排序：置信度降序（无置信度置后）
     if (sortMode === 'confidence-desc') {
       list = list.slice().sort((a, b) => {
@@ -118,7 +110,7 @@ export default function ResultPanel({
       });
     }
     return list;
-  }, [errors, filterSource, filterDecision, conflictOnly, sortMode]);
+  }, [errors, filterSource, sortMode]);
 
   useEffect(() => {
     measureOverflow();
@@ -559,33 +551,9 @@ export default function ResultPanel({
             <option value="all">全部</option>
             <option value="basic">基础</option>
             <option value="fluent">流畅</option>
-            <option value="reviewer">审阅</option>
           </select>
         </div>
-        <div className={cn('result-panel__filter-group')}>
-          <label className={cn('result-panel__label')} htmlFor="filter-decision">审阅</label>
-          <select
-            id="filter-decision"
-            className={cn('result-panel__select')}
-            value={filterDecision}
-            onChange={(e) => setFilterDecision(e.target.value as any)}
-          >
-            <option value="all">全部</option>
-            <option value="accept">通过</option>
-            <option value="reject">驳回</option>
-            <option value="modify">修改</option>
-          </select>
-        </div>
-        <div className={cn('result-panel__filter-group')}>
-          <label className={cn('result-panel__checkbox')}>
-            <input
-              type="checkbox"
-              checked={conflictOnly}
-              onChange={(e) => setConflictOnly(e.target.checked)}
-            />
-            仅冲突
-          </label>
-        </div>
+        {/* Reviewer 决策筛选与仅冲突开关已移除 */}
         <div className={cn('result-panel__filter-group')}>
           <label className={cn('result-panel__label')} htmlFor="sort-mode">排序</label>
           <select
@@ -674,6 +642,8 @@ export default function ResultPanel({
                     e.stopPropagation(); // Prevent li onClick from firing
                     onApplyError(error);
                   }}
+                  disabled={!error.suggestion || error.suggestion === error.text}
+                  title={!error.suggestion || error.suggestion === error.text ? '该项仅为提示，无可用建议' : '应用此修正'}
                 >
                   修正
                 </button>
@@ -681,7 +651,7 @@ export default function ResultPanel({
             </div>
             <div className={cn('error-item__body')}>
               <p className={cn('error-item__original')}>{error.text}</p>
-              <p className={cn('error-item__suggestion')}>{error.suggestion}</p>
+              <p className={cn('error-item__suggestion')}>{error.suggestion || '（无建议）'}</p>
               {(() => {
                 const quote = getQuote(error);
                 if (!quote) return null;
@@ -710,7 +680,11 @@ export default function ResultPanel({
                 );
               })()}
             </div>
-            <p className={cn('error-item__explanation')}>
+            <p
+              className={cn('error-item__explanation', {
+                'error-item__explanation--expanded': expandedIds.has(error.id),
+              })}
+            >
               <span className={cn('error-item__explanation-label')}>原因：</span>
               <span
                 id={`exp-${error.id}`}
