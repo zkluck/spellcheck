@@ -31,10 +31,10 @@
   width: 120%;
   height: 150%;
   background: conic-gradient(from 200deg at 70% 40%,
-              rgba(14,165,233,0.18), rgba(99,102,241,0.18), rgba(168,85,247,0.18), rgba(34,211,238,0.18), rgba(14,165,233,0.18));
-  filter: blur(60px);
-  opacity: 0.6;
-  animation: home-glow-spin 40s linear infinite;
+              rgba(14,165,233,0.28), rgba(99,102,241,0.28), rgba(168,85,247,0.28), rgba(34,211,238,0.28), rgba(14,165,233,0.28));
+  filter: blur(40px);
+  opacity: 0.85;
+  animation: home-glow-spin 20s linear infinite;
   pointer-events: none;
   z-index: 0;
 }
@@ -65,15 +65,59 @@
 .home__layout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  grid-template-rows: minmax(0, 1fr); /* 关键修复：定义行高以约束其子项 */
   gap: 20px;
   flex: 1;       /* 占满剩余高度 */
   min-height: 0; /* 避免子项溢出时撑破布局 */
+  overflow: hidden; /* 关键修复：与 grid-template-rows 配合，隐藏外部滚动条 */
 }
 
 .home__editor-section {
-  display: flex;
-  flex-direction: column;
+  display: grid; /* 改为 grid 布局 */
+  grid-template-rows: 1fr auto; /* 关键修复：让 TextEditor 占据剩余空间，审阅开关占据自身高度 */
   gap: 16px;
+  min-height: 0; /* 允许在 grid/flex 布局中正确收缩 */
+}
+
+.home__reviewer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+  color: #e5e7eb; /* 提升对比度 */
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); /* 在复杂背景上提升可读性 */
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.28));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.home__reviewer-label {
+  color: #f3f4f6;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
+}
+
+.home__reviewer-option {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: #e5e7eb;
+}
+
+.home__reviewer-input {
+  accent-color: #60a5fa; /* 提升 radio 可见度 */
+  width: 14px;
+  height: 14px;
+  filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.55));
+}
+
+.home__reviewer-input:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.7);
+  outline-offset: 2px;
 }
 
 .home__title {
@@ -121,6 +165,7 @@
 }
 
 @keyframes home-glow-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.06); }
+  100% { transform: rotate(360deg) scale(1); }
 }

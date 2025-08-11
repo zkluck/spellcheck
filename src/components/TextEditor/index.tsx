@@ -31,27 +31,7 @@ export default function TextEditor({
   const highlightsRef = useRef<HTMLDivElement | null>(null);
   const spanRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const [scrollTop, setScrollTop] = useState(0);
-
-  const handleCopy = useCallback(async () => {
-    try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value);
-      } else {
-        // 兼容性处理：创建临时文本区域复制
-        const temp = document.createElement('textarea');
-        temp.value = value;
-        document.body.appendChild(temp);
-        temp.select();
-        document.execCommand('copy');
-        document.body.removeChild(temp);
-      }
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('Copy failed:', e);
-    }
-  }, [value]);
+  const editorRef = useRef<HTMLDivElement | null>(null);
 
   const renderWithHighlight = useMemo(() => {
     if (errors.length === 0) {
@@ -118,8 +98,37 @@ export default function TextEditor({
     }
   }, [activeErrorId]);
 
+  useEffect(() => {
+    const calculateScrollbarWidth = () => {
+      if (editorRef.current) {
+        // 创建一个临时元素来精确测量滚动条宽度
+        const outer = document.createElement('div');
+        outer.style.visibility = 'hidden';
+        outer.style.overflow = 'scroll';
+        // @ts-ignore - msOverflowStyle is needed for WinJS apps
+        outer.style.msOverflowStyle = 'scrollbar';
+        document.body.appendChild(outer);
+
+        const inner = document.createElement('div');
+        outer.appendChild(inner);
+
+        const scrollbarWidth = outer.offsetWidth - inner.offsetWidth;
+        document.body.removeChild(outer);
+
+        editorRef.current.style.setProperty('--scrollbar-width', `${scrollbarWidth}px`);
+      }
+    };
+
+    calculateScrollbarWidth();
+    window.addEventListener('resize', calculateScrollbarWidth);
+
+    return () => {
+      window.removeEventListener('resize', calculateScrollbarWidth);
+    };
+  }, []);
+
   return (
-    <div className={cn('text-editor')}>
+    <div className={cn('text-editor')} ref={editorRef}>
       <div className={cn('text-editor__container')}>
         <textarea
           className={cn('text-editor__input')}
@@ -140,17 +149,7 @@ export default function TextEditor({
           </div>
         </div>
       </div>
-      <div className={cn('text-editor__info')}>
-        <span className={cn('text-editor__char-count')}>{value.length} 字符</span>
-        <button
-          type="button"
-          className={cn('text-editor__copy-button')}
-          onClick={handleCopy}
-          aria-label="复制文本"
-        >
-          {copied ? '已复制' : '复制'}
-        </button>
-      </div>
+
     </div>
   );
 }

@@ -371,10 +371,11 @@ export default function Home() {
               onSelectError={handleSelectError}
             />
             {/* Reviewer 开关（简易单选按钮） */}
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '8px 0' }}>
-              <span>审阅（Reviewer）</span>
-              <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+            <div className={cn('home__reviewer')}>
+              <span className={cn('home__reviewer-label')}>审阅（Reviewer）</span>
+              <label className={cn('home__reviewer-option')}>
                 <input
+                  className={cn('home__reviewer-input')}
                   type="radio"
                   name="reviewer"
                   value="on"
@@ -383,8 +384,9 @@ export default function Home() {
                 />
                 开
               </label>
-              <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+              <label className={cn('home__reviewer-option')}>
                 <input
+                  className={cn('home__reviewer-input')}
                   type="radio"
                   name="reviewer"
                   value="off"
