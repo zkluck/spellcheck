@@ -11,6 +11,13 @@ import { logger } from '@/lib/logger';
 // 定义 BasicErrorAgent 的输入结构
 const BasicErrorAgentInputSchema = z.object({
   text: z.string(),
+  previous: z
+    .object({
+      issuesJson: z.string().optional(),
+      patchedText: z.string().optional(),
+      runIndex: z.number().optional(),
+    })
+    .optional(),
 });
 
 type BasicErrorAgentInput = z.infer<typeof BasicErrorAgentInputSchema>;
@@ -55,6 +62,11 @@ const BASIC_ERROR_PROMPT = ChatPromptTemplate.fromMessages([
     `
 请在以下文本中检测基础错误（仅输出 JSON 数组）：
 {text}
+
+若提供上一轮信息，请参考但不要改变索引基准：
+- 上一轮问题（JSON）：{prevIssues}
+- 已修复文本（仅参考）：{patchedText}
+- 迭代编号：{runIndex}
 `.trim()
   ],
 ]);
@@ -71,7 +83,12 @@ export class BasicErrorAgent extends BaseAgent<BasicErrorAgentInput> {
     const llm = getLLM();
 
     try {
-      const messages = await BASIC_ERROR_PROMPT.formatMessages({ text: input.text });
+      const messages = await BASIC_ERROR_PROMPT.formatMessages({
+        text: input.text,
+        prevIssues: input.previous?.issuesJson ?? '',
+        patchedText: input.previous?.patchedText ?? '',
+        runIndex: String(input.previous?.runIndex ?? ''),
+      } as any);
       const response = await guardLLMInvoke(
         (innerSignal) => llm.invoke(messages as any, { signal: innerSignal } as any),
         {

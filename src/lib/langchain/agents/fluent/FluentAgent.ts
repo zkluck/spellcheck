@@ -11,6 +11,13 @@ import { logger } from '@/lib/logger';
 // 定义 FluentAgent 的输入结构
 const FluentAgentInputSchema = z.object({
   text: z.string(),
+  previous: z
+    .object({
+      issuesJson: z.string().optional(),
+      patchedText: z.string().optional(),
+      runIndex: z.number().optional(),
+    })
+    .optional(),
 });
 
 type FluentAgentInput = z.infer<typeof FluentAgentInputSchema>;
@@ -54,6 +61,11 @@ const FLUENT_PROMPT = ChatPromptTemplate.fromMessages([
     `
 请在以下文本中检测流畅性问题，仅输出 JSON 数组：
 {text}
+
+若提供上一轮信息，请参考且保持与给定文本的索引一致：
+- 上一轮问题（JSON）：{prevIssues}
+- 已修复文本（仅参考）：{patchedText}
+- 迭代编号：{runIndex}
 `.trim()
   ],
 ]);
@@ -70,7 +82,12 @@ export class FluentAgent extends BaseAgent<FluentAgentInput> {
     const llm = getLLM();
 
     try {
-      const messages = await FLUENT_PROMPT.formatMessages({ text: input.text });
+      const messages = await FLUENT_PROMPT.formatMessages({
+        text: input.text,
+        prevIssues: input.previous?.issuesJson ?? '',
+        patchedText: input.previous?.patchedText ?? '',
+        runIndex: String(input.previous?.runIndex ?? ''),
+      } as any);
       const response = await guardLLMInvoke(
         (innerSignal) => llm.invoke(messages as any, { signal: innerSignal } as any),
         {
