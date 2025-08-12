@@ -2,25 +2,12 @@ import { BaseAgent } from '@/lib/langchain/agents/base/BaseAgent';
 import { AgentResponse } from '@/types/agent';
 import { ErrorItem } from '@/types/error';
 import { getLLM } from '@/lib/langchain/models/llm-config';
-import { z } from 'zod';
+import type { AgentInputWithPrevious } from '@/types/schemas';
+import { AgentResponseSchema } from '@/types/schemas';
 import { extractJsonArrayFromContent, toErrorItems } from '@/lib/langchain/utils/llm-output';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
 import { logger } from '@/lib/logger';
-
-// 定义 FluentAgent 的输入结构
-const FluentAgentInputSchema = z.object({
-  text: z.string(),
-  previous: z
-    .object({
-      issuesJson: z.string().optional(),
-      patchedText: z.string().optional(),
-      runIndex: z.number().optional(),
-    })
-    .optional(),
-});
-
-type FluentAgentInput = z.infer<typeof FluentAgentInputSchema>;
 
 // FluentAgent 的 Prompt 模板（ChatPromptTemplate）
 const FLUENT_PROMPT = ChatPromptTemplate.fromMessages([
@@ -73,12 +60,12 @@ const FLUENT_PROMPT = ChatPromptTemplate.fromMessages([
 /**
  * FluentAgent 负责检测语义通顺和表达优化问题
  */
-export class FluentAgent extends BaseAgent<FluentAgentInput> {
+export class FluentAgent extends BaseAgent<AgentInputWithPrevious> {
   constructor() {
     super('FluentAgent');
   }
 
-  async call(input: FluentAgentInput, signal?: AbortSignal): Promise<AgentResponse> {
+  async call(input: AgentInputWithPrevious, signal?: AbortSignal): Promise<AgentResponse> {
     const llm = getLLM();
 
     try {
@@ -112,10 +99,12 @@ export class FluentAgent extends BaseAgent<FluentAgentInput> {
         originalText: input.text,
       });
 
-      return { 
-        result: processedErrors,
-        rawOutput
-      };
+      const parsedOut = AgentResponseSchema.safeParse({ result: processedErrors, rawOutput });
+      if (!parsedOut.success) {
+        logger.warn('FluentAgent.output_invalid', { zod: parsedOut.error.flatten?.() ?? String(parsedOut.error) });
+        return { result: [], error: 'FluentAgent.invalid_output', rawOutput } as AgentResponse;
+      }
+      return parsedOut.data as AgentResponse;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('FluentAgent.invoke.error', { error: errorMessage });

@@ -1,4 +1,26 @@
 import { ErrorItem } from '@/types/error';
+import { config } from '@/lib/config';
+
+// 统一的置信度读取函数：从 normalized metadata 中读取并归一化到 [0,1]
+function getConfidence(e: ErrorItem): number | null {
+  const meta: any = (e as any).metadata ?? {};
+  const candidates = [
+    meta?.confidence,
+    meta?.reviewer?.confidence,
+    meta?.originalLLM?.confidence,
+    (e as any).confidence,
+  ];
+  for (const raw of candidates) {
+    if (typeof raw === 'number') {
+      return Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : null;
+    }
+    if (typeof raw === 'string') {
+      const v = parseFloat(raw);
+      if (Number.isFinite(v)) return Math.max(0, Math.min(1, v));
+    }
+  }
+  return null;
+}
 
 /**
  * 扁平化 + 过滤无效项
@@ -45,6 +67,15 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
     // 选择：类型优先级 > explanation 长度 > 原顺序
     return arr.reduce((best, cur) => {
       if (!best) return cur;
+      if (config.langchain.merge?.confidenceFirst) {
+        const cb = getConfidence(cur);
+        const bb = getConfidence(best);
+        if (cb != null || bb != null) {
+          if ((cb ?? -1) !== (bb ?? -1)) {
+            return (cb ?? -1) > (bb ?? -1) ? cur : best;
+          }
+        }
+      }
       const pBest = prio(best.type);
       const pCur = prio(cur.type);
       if (pCur !== pBest) return pCur > pBest ? cur : best;
@@ -97,6 +128,16 @@ function resolveOverlaps(sorted: ErrorItem[]): ErrorItem[] {
         // 保留更短的（更精细）
         last = curLen < lastLen ? cur : last;
       } else {
+        if (config.langchain.merge?.confidenceFirst) {
+          const lc = getConfidence(last);
+          const cc = getConfidence(cur);
+          if (lc != null || cc != null) {
+            if ((cc ?? -1) !== (lc ?? -1)) {
+              last = (cc ?? -1) > (lc ?? -1) ? cur : last;
+              continue;
+            }
+          }
+        }
         const eBest = explLen(last);
         const eCur = explLen(cur);
         if (eCur !== eBest) {

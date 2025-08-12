@@ -89,6 +89,7 @@ E2E_ENABLE=0
 
   - `ANALYZE_TIMEOUT_MS`：`analyzeText` 超时时间（毫秒）。
   - `E2E_ENABLE`：启用 E2E 场景模拟的后端分支，仅供本地/CI。
+  - `MERGE_CONFIDENCE_FIRST`：合并时是否优先高置信度（`true|false`，默认 `true`）。对应 `config.langchain.merge.confidenceFirst`。
   - `WORKFLOW_PIPELINE`：多智能体顺序与次数配置，语法示例：`"basic*2, reviewer, fluent*1"`；可用 agent：`basic | fluent | reviewer`；省略 `*n` 等同 `*1`。默认：`basic*1,fluent*1,reviewer*1`。
   - 日志相关（`src/lib/logger.ts`）：`LOG_TO_FILE`（默认 Node 环境为 `true`）、`LOG_DIR`（默认 `logs`）、`LOG_FILE_PREFIX`（默认 `app`）、`LOG_FILE_LEVEL`（`debug|info|warn|error`，默认 `info`）。
   - 日志负载开关（`src/lib/config.ts`）：`LOG_ENABLE_PAYLOAD`（是否输出示例内容，如错误样例与建议；默认 `false`，生产建议保持关闭）。
@@ -197,6 +198,43 @@ data: {"type":"error","code":"aborted|internal","message":"...","requestId":"...
 ```
 
 - 注意：所有 `errors` 元素已按 `ErrorItemSchema` 进行二次校验与清洗。
+
+### Schema 统一（Zod）
+
+- 公共 Schema 集中于 `src/types/schemas.ts`：
+  - 基础：`EnabledTypeEnum`、`AnalyzeOptionsSchema`、`AnalyzeRequestSchema`、`CoordinatorAgentInputSchema`。
+  - Agent 通用：`AgentPreviousSchema`、`AgentInputWithPreviousSchema`。
+  - Reviewer：`ReviewerCandidateSchema`、`ReviewerInputSchema`、`ReviewDecisionSchema`。
+- 错误项 Schema：`src/types/error.ts` 导出 `ErrorItemSchema` 与 `ErrorItem` 类型。
+- 复用范围：
+  - API 路由 `src/app/api/check/route.ts` 与 `CoordinatorAgent` 统一复用公共 Schema。
+  - `BasicErrorAgent.ts`、`FluentAgent.ts` 输入复用 `AgentInputWithPreviousSchema`；
+  - `ReviewerAgent.ts` 输入/裁决复用 `ReviewerInputSchema` / `ReviewDecisionSchema`；
+  - `CoordinatorAgent.ts` 构造传给各 Agent 的参数均为强类型（无 `any`），传 Reviewer 的 candidates 结构与共享类型保持一致。
+- 前端/共享类型：`src/types/agent.ts` 的 `AnalyzeOptions` 直接引用 `EnabledType`，与 Zod 枚举保持一致。
+- Reviewer 开关已完全移除：是否执行 Reviewer 仅由 `WORKFLOW_PIPELINE` 及 `enabledTypes` 决定。
+
+### API 契约导出（JSON Schema）
+
+- 我们提供 `zod` → `JSON Schema` 的一键导出脚本，便于前端/第三方对接与文档同步：
+
+```bash
+# 安装（仅一次）
+npm i -D tsx zod-to-json-schema
+
+# 生成所有公共契约
+npm run gen:schema
+```
+
+- 输出路径：`schemas/json/*.schema.json`
+  - 覆盖：`AnalyzeRequest`、`CoordinatorAgentInput`、`AgentInputWithPrevious`、`ReviewerInput`、`ReviewDecision`、`ErrorItem`、`AgentResponse` 等。
+  - 生成脚本：`scripts/generate-schemas.ts`
+- 建议在 CI 中加入校验步骤，确保 PR 未遗漏契约更新：
+
+```bash
+npm run gen:schema
+git diff --exit-code schemas/json || (echo "Schemas changed. Commit generated schemas." && exit 1)
+```
 
 ## 日志与可观测性
 

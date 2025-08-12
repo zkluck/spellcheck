@@ -1,6 +1,7 @@
 /**
  * 应用配置，从环境变量中读取
  */
+import { z } from 'zod';
 
 /**
  * 获取环境变量，如果不存在则返回默认值
@@ -49,12 +50,34 @@ export const config = {
      * 例如：WORKFLOW_PIPELINE="basic*2,reviewer,fluent*1"
      * 可用 agent：basic | fluent | reviewer；省略 *n 等同 *1。
      */
-    workflow: {
-      pipeline: parsePipelineEnv(
-        getEnv('WORKFLOW_PIPELINE', 'basic*1,fluent*1,reviewer*1')
-      ),
-    } as {
-      pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }>;
+    workflow: ((): { pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> } => {
+      const raw = getEnv('WORKFLOW_PIPELINE', 'basic*1,fluent*1,reviewer*1');
+      const parsed = parsePipelineEnv(raw);
+      const PipelineEntrySchema = z.object({
+        agent: z.enum(['basic', 'fluent', 'reviewer']),
+        runs: z.number().int().positive(),
+      });
+      const PipelineSchema = z.array(PipelineEntrySchema).min(1);
+      const safe = PipelineSchema.safeParse(parsed);
+      if (safe.success) return { pipeline: safe.data };
+      // 回退默认
+      return {
+        pipeline: [
+          { agent: 'basic', runs: 1 },
+          { agent: 'fluent', runs: 1 },
+          { agent: 'reviewer', runs: 1 },
+        ],
+      };
+    })(),
+    /**
+     * 合并阶段行为
+     */
+    merge: {
+      /**
+       * 是否在合并/去重时优先使用置信度（当可用时）。
+       * 环境变量：MERGE_CONFIDENCE_FIRST（默认 true）
+       */
+      confidenceFirst: getEnvBool('MERGE_CONFIDENCE_FIRST', true),
     },
   },
   /**

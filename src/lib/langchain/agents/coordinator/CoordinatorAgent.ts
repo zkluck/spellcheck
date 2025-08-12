@@ -4,9 +4,11 @@ import { BasicErrorAgent } from '@/lib/langchain/agents/basic/BasicErrorAgent';
 import { FluentAgent } from '@/lib/langchain/agents/fluent/FluentAgent';
 import { mergeErrors } from '@/lib/langchain/merge';
 import { logger } from '@/lib/logger';
-import { z } from 'zod';
+import { CoordinatorAgentInputSchema } from '@/types/schemas';
+import type { z } from 'zod';
 import { ReviewerAgent } from '@/lib/langchain/agents/reviewer/ReviewerAgent';
 import { config } from '@/lib/config';
+import type { AgentInputWithPrevious, ReviewerInput } from '@/types/schemas';
 
 function summarizeItems(items: ErrorItem[] | undefined) {
   if (!items) {
@@ -21,14 +23,7 @@ function summarizeItems(items: ErrorItem[] | undefined) {
 
 type IndexMapFn = (i: number) => number;
 
-// 定义 CoordinatorAgent 的输入结构
-const CoordinatorAgentInputSchema = z.object({
-  text: z.string(),
-  options: z.object({
-    enabledTypes: z.array(z.enum(['spelling', 'punctuation', 'grammar', 'fluency'])),
-  }),
-});
-
+// 复用共享 Schema，保证与 API 入参完全一致
 type CoordinatorAgentInput = z.infer<typeof CoordinatorAgentInputSchema>;
 
 // 流式回调函数类型
@@ -54,8 +49,13 @@ export class CoordinatorAgent {
     signal?: AbortSignal,
     context?: { reqId?: string },
   ): Promise<AgentResponse> {
-    const { text, options } = input;
-    const { enabledTypes } = options;
+    const parsed = CoordinatorAgentInputSchema.safeParse(input);
+    if (!parsed.success) {
+      try { logger.warn('coordinator.input_invalid', { zod: parsed.error.flatten?.() ?? String(parsed.error) }); } catch {}
+      throw new Error('Invalid input');
+    }
+    const { text, options } = parsed.data;
+    const enabledTypes = Array.from(new Set(options.enabledTypes));
     
     // 顺序执行：
     // 1) 运行 Basic，并按合并规则得到可应用的基础错误；
@@ -95,6 +95,17 @@ export class CoordinatorAgent {
       { agent: 'reviewer', runs: 1 },
     ];
 
+    // 配置一致性提示（不强制报错，仅记录）
+    try {
+      const pipelineAgents = pipeline.map(p => p.agent);
+      if (!pipelineAgents.includes('fluent') && enabledTypes.includes('fluency')) {
+        logger.info('coordinator.consistency', { note: 'fluency_enabled_but_pipeline_no_fluent' });
+      }
+      if (!pipelineAgents.includes('basic') && enabledTypes.some(t => ['spelling', 'punctuation', 'grammar'].includes(t))) {
+        logger.info('coordinator.consistency', { note: 'basic_enabled_but_pipeline_no_basic' });
+      }
+    } catch {}
+
     // 状态
     let basicResultsAll: ErrorItem[] = [];
     let fluentResultsAll: ErrorItem[] = [];
@@ -125,10 +136,11 @@ export class CoordinatorAgent {
             const prevIssuesJson = basicResultsAll.length > 0 ? JSON.stringify(basicResultsAll) : '[]';
             recomputePatched();
             const prevPatchedText = patchedText;
-            const basicRes = await this.basicErrorAgent.call({
+            const basicInput: AgentInputWithPrevious = {
               text,
               previous: { issuesJson: prevIssuesJson, patchedText: prevPatchedText, runIndex: basicRun },
-            } as any, signal);
+            };
+            const basicRes = await this.basicErrorAgent.call(basicInput, signal);
             const normalizedBasic: AgentResponse = {
               ...basicRes,
               result: (basicRes.result ?? []).map(it => ({ ...it, metadata: { ...(it.metadata ?? {}), source: 'basic' } } as ErrorItem)),
@@ -161,10 +173,11 @@ export class CoordinatorAgent {
               const { output: patchedGuidance } = applyEditsAndBuildMap(fluentInputText, appliedNonOverlapPrevFluent);
               prevFluentPatchedText = patchedGuidance;
             }
-            const fluentRes = await this.fluentAgent.call({
+            const fluentInput: AgentInputWithPrevious = {
               text: fluentInputText,
               previous: { issuesJson: prevFluentIssuesJson, patchedText: prevFluentPatchedText, runIndex: fluentRun },
-            } as any, signal);
+            };
+            const fluentRes = await this.fluentAgent.call(fluentInput, signal);
             const mappedFluent: ErrorItem[] = [];
             const rawFluent: ErrorItem[] = [];
             if (fluentRes.result && fluentRes.result.length > 0) {
@@ -200,12 +213,13 @@ export class CoordinatorAgent {
         for (let i = 0; i < runs; i++) {
           try {
             const candidateList: ErrorItem[] = allResults.flatMap(r => r.result ?? []);
+            const candidateById = new Map<string, ErrorItem>(candidateList.map((c) => [c.id, c]));
             const reviewerRun = i + 1;
-            const reviewerInput = {
+            const reviewerInput: ReviewerInput = {
               text,
               candidates: candidateList.map((c) => ({ id: c.id, text: c.text, start: c.start, end: c.end, suggestion: c.suggestion, type: c.type, explanation: c.explanation ?? '' })),
             };
-            const reviewRes = await this.reviewerAgent.call(reviewerInput as any, signal);
+            const reviewRes = await this.reviewerAgent.call(reviewerInput, signal);
 
             let finalResult: ErrorItem[] = reviewRes.result ?? [];
             if (reviewRes.result && reviewRes.decisions) {
@@ -224,9 +238,18 @@ export class CoordinatorAgent {
 
             const refinedOnce = finalResult.map((it) => {
               const src = sourceById.get(it.id);
-              return src ? ({ ...it, metadata: { ...(it.metadata ?? {}), source: src } } as ErrorItem) : it;
+              const base = candidateById.get(it.id);
+              const mergedMeta = {
+                ...(base?.metadata ?? {}),
+                ...(it.metadata ?? {}),
+                ...(src ? { source: src } : {}),
+              } as any;
+              // 合并时以审阅后的结构为准，同时尽量保留原候选的有用元数据（如 originalLLM）
+              return { ...(base ?? {}), ...it, metadata: mergedMeta } as ErrorItem;
             });
 
+            // Reviewer 为最终裁决：用审阅后的结果替换之前的候选，避免“审阅前 + 审阅后”双重混入
+            allResults.length = 0;
             allResults.push({ result: refinedOnce });
           } catch (e) {
             logger.warn('agent.failed', { reqId: context?.reqId, agent: 'reviewer', reason: (e as Error)?.message });

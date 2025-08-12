@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { AgentResponse } from '@/types/agent';
 import type { ErrorItem } from '@/types/error';
 import { getLLM } from '@/lib/langchain/models/llm-config';
@@ -7,6 +6,9 @@ import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
+import { ReviewerInputSchema, ReviewDecisionSchema } from '@/types/schemas';
+import type { ReviewerInput, ReviewDecision } from '@/types/schemas';
+import { AgentResponseSchema } from '@/types/schemas';
 
 /**
  * ReviewerAgent 执行说明：
@@ -14,45 +16,7 @@ import { config } from '@/lib/config';
  * - 如工作流未包含 reviewer 节点，则不会运行本 Agent。
  */
 
-// 输入：原文 + 候选列表（来自各 Agent 的检测结果）
-const ReviewerInputSchema = z.object({
-  text: z.string(),
-  candidates: z.array(
-    z.object({
-      id: z.string(),
-      text: z.string(),
-      start: z.number(),
-      end: z.number(),
-      suggestion: z.string(),
-      type: z.enum(['spelling', 'punctuation', 'grammar', 'fluency']),
-      explanation: z.string().optional(),
-    })
-  ),
-});
-
-export type ReviewerInput = z.infer<typeof ReviewerInputSchema>;
-
-// 模型输出：对每条候选做判决
-// status: accept(接受)
-//         reject(拒绝)
-//         modify(接受但需修改span或建议)
-const ReviewDecisionSchema = z.object({
-  id: z.string(),
-  status: z.enum(['accept', 'reject', 'modify']),
-  // 当 modify 时，可返回新的 span/suggestion/explanation
-  start: z.number().optional(),
-  end: z.number().optional(),
-  suggestion: z.string().optional(),
-  explanation: z.string().optional(),
-  confidence: z.number().min(0).max(1).optional(),
-}).superRefine((val, ctx) => {
-  // 若同时提供 start/end，则必须合法：end > start 且二者均为有限数
-  if (typeof val.start === 'number' && typeof val.end === 'number') {
-    if (!(Number.isFinite(val.start) && Number.isFinite(val.end) && val.end > val.start && val.start >= 0)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['end'], message: 'invalid span: require 0<=start<end' });
-    }
-  }
-});
+// 输入与模型裁决 Schema 均从共享定义中导入
 
 const REVIEW_PROMPT = ChatPromptTemplate.fromMessages([
   [
@@ -97,7 +61,7 @@ const REVIEW_PROMPT = ChatPromptTemplate.fromMessages([
 ]);
 
 export class ReviewerAgent {
-  async call(input: ReviewerInput, signal?: AbortSignal): Promise<AgentResponse & { decisions?: z.infer<typeof ReviewDecisionSchema>[] }> {
+  async call(input: ReviewerInput, signal?: AbortSignal): Promise<AgentResponse & { decisions?: ReviewDecision[] }> {
     const parsed = ReviewerInputSchema.safeParse(input);
     if (!parsed.success) {
       return { result: [], error: 'ReviewerAgent.invalid_input' };
@@ -125,7 +89,7 @@ export class ReviewerAgent {
       const arr = extractJsonArrayFromContent(response.content);
 
       // 解析成 decisions
-      const decisions: z.infer<typeof ReviewDecisionSchema>[] = [];
+      const decisions: ReviewDecision[] = [];
       for (const it of arr) {
         const p = ReviewDecisionSchema.safeParse(it);
         if (p.success) decisions.push(p.data);
@@ -155,11 +119,22 @@ export class ReviewerAgent {
           suggestion,
           type: base.type,
           explanation,
-          metadata: { reviewer: { status: d.status, confidence: d.confidence } },
+          metadata: {
+            reviewer: { status: d.status, confidence: d.confidence },
+            confidence: typeof d.confidence === 'number' ? d.confidence : undefined,
+          },
         } as ErrorItem);
       }
 
-      return { result: refined, rawOutput, error: undefined, ...(decisions.length ? { decisions } : {}) };
+      // 使用共享的 AgentResponseSchema 校验核心输出结构
+      const core = { result: refined, rawOutput };
+      const parsedOut = AgentResponseSchema.safeParse(core);
+      if (!parsedOut.success) {
+        logger.warn('ReviewerAgent.output_invalid', { zod: parsedOut.error.flatten?.() ?? String(parsedOut.error) });
+        return { result: [], error: 'ReviewerAgent.invalid_output', rawOutput } as AgentResponse;
+      }
+      const validated = parsedOut.data as AgentResponse;
+      return { ...validated, ...(decisions.length ? { decisions } : {}) };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.error('ReviewerAgent.invoke.error', { error: msg });

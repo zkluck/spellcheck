@@ -206,6 +206,7 @@ export function toErrorItems(
             metadata: {
               locate: 'unique-text',
               originalLLM: { start, end, rawType, quote, confidence, rawId },
+              confidence,
             },
           } as ErrorItem);
           inserted = true;
@@ -226,6 +227,7 @@ export function toErrorItems(
             metadata: {
               locate: 'closest-by-hint',
               originalLLM: { start, end, rawType, quote, confidence, rawId },
+              confidence,
             },
           } as ErrorItem);
         }
@@ -244,6 +246,7 @@ export function toErrorItems(
       metadata: {
         locate: 'exact',
         originalLLM: { start, end, rawType, quote, confidence, rawId },
+        confidence,
       },
     } as ErrorItem);
   }

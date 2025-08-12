@@ -246,11 +246,21 @@ export default function ResultPanel({
   // 从 metadata 中提取可选的置信度（函数声明，避免 TDZ）
   function getConfidence(error: ErrorItem): number | null {
     const meta: any = (error as any).metadata ?? {};
-    const raw = (error as any).confidence ?? meta?.confidence;
-    if (typeof raw === 'number') return isFinite(raw) ? Math.max(0, Math.min(1, raw)) : null;
-    if (typeof raw === 'string') {
-      const v = parseFloat(raw);
-      return isFinite(v) ? Math.max(0, Math.min(1, v)) : null;
+    // 优先顺序：顶层 -> metadata.confidence -> reviewer.confidence -> originalLLM.confidence
+    const candidates = [
+      (error as any).confidence,
+      meta?.confidence,
+      meta?.reviewer?.confidence,
+      meta?.originalLLM?.confidence,
+    ];
+    for (const raw of candidates) {
+      if (typeof raw === 'number') {
+        return isFinite(raw) ? Math.max(0, Math.min(1, raw)) : null;
+      }
+      if (typeof raw === 'string' && raw.trim().length > 0) {
+        const v = parseFloat(raw);
+        if (isFinite(v)) return Math.max(0, Math.min(1, v));
+      }
     }
     return null;
   }
@@ -263,7 +273,7 @@ export default function ResultPanel({
 
   const getQuote = (error: ErrorItem): string | null => {
     const meta: any = (error as any).metadata ?? {};
-    const q = (error as any).quote ?? meta?.quote ?? meta?.originalText;
+    const q = (error as any).quote ?? meta?.quote ?? meta?.originalLLM?.quote ?? meta?.originalText;
     if (typeof q === 'string' && q.trim().length > 0) return q;
     return null;
   };
@@ -292,7 +302,7 @@ export default function ResultPanel({
 
   function getDecision(error: ErrorItem): string | null {
     const meta: any = (error as any).metadata ?? {};
-    const d = meta?.reviewerDecision ?? meta?.decision ?? (error as any).decision ?? null;
+    const d = meta?.reviewerDecision ?? meta?.decision ?? meta?.reviewer?.status ?? (error as any).decision ?? null;
     return d ? String(d).toLowerCase() : null;
   }
 

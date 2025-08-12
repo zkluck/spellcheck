@@ -1,4 +1,5 @@
 import { ErrorItem } from './error';
+import type { EnabledType } from './schemas';
 
 /**
  * Defines the standard response structure for all agents.
@@ -28,5 +29,5 @@ export interface TextSegment {
  * 分析选项（供 analyzeText 与各 Agent 使用）
  */
 export interface AnalyzeOptions {
-  enabledTypes: Array<'spelling' | 'punctuation' | 'grammar' | 'fluency'>;
+  enabledTypes: Array<EnabledType>;
 }

@@ -1,6 +1,7 @@
  import { analyzeText } from '@/lib/langchain';
-import { z } from 'zod';
+import { AnalyzeRequestSchema } from '@/types/schemas';
 import { ErrorItemSchema } from '@/types/error';
+import type { ErrorItem } from '@/types/error';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
@@ -8,20 +9,10 @@ import { config } from '@/lib/config';
 // 明确使用 Node.js 运行时，确保 SSE 与服务端能力可用
 export const runtime = 'nodejs';
 
-// 定义请求体和选项的 Zod Schema（Reviewer 开关已移除，统一由 pipeline 决定）
-const OptionsSchema = z.object({
-  enabledTypes: z.array(z.enum(['grammar', 'spelling', 'punctuation', 'fluency'])).nonempty(),
-});
-const BodySchema = z.object({
-  text: z.string().min(1, 'text 不能为空'),
-  options: OptionsSchema,
-});
-
 // 出参安全：对错误项进行二次校验/清洗
-const ErrorsArraySchema = z.array(ErrorItemSchema);
 function sanitizeErrors(raw: unknown) {
-  if (!Array.isArray(raw)) return [] as z.infer<typeof ErrorItemSchema>[];
-  const out: z.infer<typeof ErrorItemSchema>[] = [];
+  if (!Array.isArray(raw)) return [] as ErrorItem[];
+  const out: ErrorItem[] = [];
   for (const it of raw) {
     const r = ErrorItemSchema.safeParse(it);
     if (r.success) out.push(r.data);
@@ -178,7 +169,7 @@ export async function POST(request: Request) {
 
     // 解析请求体
     const reqJson = await request.json();
-    const parsed = BodySchema.safeParse(reqJson);
+    const parsed = AnalyzeRequestSchema.safeParse(reqJson);
 
     if (!parsed.success) {
       log('request.bad_request', { zod: parsed.error.flatten() });

@@ -2,25 +2,12 @@ import { BaseAgent } from '@/lib/langchain/agents/base/BaseAgent';
 import { AgentResponse } from '@/types/agent';
 import { ErrorItem } from '@/types/error';
 import { getLLM } from '@/lib/langchain/models/llm-config';
-import { z } from 'zod';
+import type { AgentInputWithPrevious } from '@/types/schemas';
+import { AgentResponseSchema } from '@/types/schemas';
 import { extractJsonArrayFromContent, toErrorItems } from '@/lib/langchain/utils/llm-output';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
 import { logger } from '@/lib/logger';
-
-// 定义 BasicErrorAgent 的输入结构
-const BasicErrorAgentInputSchema = z.object({
-  text: z.string(),
-  previous: z
-    .object({
-      issuesJson: z.string().optional(),
-      patchedText: z.string().optional(),
-      runIndex: z.number().optional(),
-    })
-    .optional(),
-});
-
-type BasicErrorAgentInput = z.infer<typeof BasicErrorAgentInputSchema>;
 
 // BasicErrorAgent 的 Prompt 模板（ChatPromptTemplate）
 const BASIC_ERROR_PROMPT = ChatPromptTemplate.fromMessages([
@@ -74,12 +61,12 @@ const BASIC_ERROR_PROMPT = ChatPromptTemplate.fromMessages([
 /**
  * BasicErrorAgent 负责检测基础的、客观的错误：拼写、标点、基础语法
  */
-export class BasicErrorAgent extends BaseAgent<BasicErrorAgentInput> {
+export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
   constructor() {
     super('BasicErrorAgent');
   }
 
-  async call(input: BasicErrorAgentInput, signal?: AbortSignal): Promise<AgentResponse> {
+  async call(input: AgentInputWithPrevious, signal?: AbortSignal): Promise<AgentResponse> {
     const llm = getLLM();
 
     try {
@@ -125,10 +112,12 @@ export class BasicErrorAgent extends BaseAgent<BasicErrorAgentInput> {
         }
       }
 
-      return { 
-        result: allErrors,
-        rawOutput
-      };
+      const parsedOut = AgentResponseSchema.safeParse({ result: allErrors, rawOutput });
+      if (!parsedOut.success) {
+        logger.warn('BasicErrorAgent.output_invalid', { zod: parsedOut.error.flatten?.() ?? String(parsedOut.error) });
+        return { result: [], error: 'BasicErrorAgent.invalid_output', rawOutput } as AgentResponse;
+      }
+      return parsedOut.data as AgentResponse;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('BasicErrorAgent.invoke.error', { error: errorMessage });
