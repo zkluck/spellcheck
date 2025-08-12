@@ -40,7 +40,7 @@ const BASIC_ERROR_PROMPT = ChatPromptTemplate.fromMessages([
 - "text": 原文片段（必须等于 original.slice(start, end)）
 - "start": number（UTF-16 下标）
 - "end": number（end > start）
-- "suggestion": string（若为删除，置为 ""）
+- "suggestion": string（**必须**提供具体修正建议，而不是在解释中说明。若为删除，则为空字符串 ""）
 - "explanation": string（客观说明，避免主观措辞）
 - "quote": 与 "text" 完全一致
 - "confidence": 0~1（把握高时再给）

@@ -289,5 +289,11 @@ export async function guardLLMInvoke<T>(
     operationName: operation,
   });
   logger.debug('llm.invoke.end', { operation });
+  try {
+    const output = makeSafeForLog(result);
+    logger.info('llm.invoke.output', { operation, output });
+  } catch (e) {
+    logger.warn('llm.invoke.output_log_failed', { operation, error: String((e as any)?.message ?? e) });
+  }
   return result;
 }

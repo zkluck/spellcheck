@@ -15,7 +15,7 @@ function getEnv(key: string, defaultValue: string): string {
 function getEnvNumber(key: string, defaultValue: number): number {
   const value = process.env[key];
   if (value === undefined) return defaultValue;
-  
+
   const parsed = parseInt(value, 10);
   return isNaN(parsed) ? defaultValue : parsed;
 }
@@ -43,14 +43,16 @@ export const config = {
      * 默认: 20000ms (20秒)
      * 环境变量: ANALYZE_TIMEOUT_MS
      */
-    analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 20000),
+    analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 60000),
     /**
      * 工作流配置：仅保留可读性强的 pipeline 字符串，自由配置顺序与次数。
      * 例如：WORKFLOW_PIPELINE="basic*2,reviewer,fluent*1"
      * 可用 agent：basic | fluent | reviewer；省略 *n 等同 *1。
      */
     workflow: {
-      pipeline: parsePipelineEnv(getEnv('WORKFLOW_PIPELINE', 'basic*1,fluent*1,reviewer*1')),
+      pipeline: parsePipelineEnv(
+        getEnv('WORKFLOW_PIPELINE', 'basic*1,fluent*1,reviewer*1')
+      ),
     } as {
       pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }>;
     },
@@ -66,7 +68,6 @@ export const config = {
      */
     enablePayload: getEnvBool('LOG_ENABLE_PAYLOAD', false),
   },
-  
 };
 
 /**
@@ -79,9 +80,15 @@ export const config = {
  * 解析 WORKFLOW_PIPELINE 环境变量
  * 语法示例："basic*2, reviewer, fluent*1"
  */
-function parsePipelineEnv(raw: string): Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> {
-  const items = String(raw || '').split(',').map(s => s.trim()).filter(Boolean);
-  const out: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> = [];
+function parsePipelineEnv(
+  raw: string
+): Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> {
+  const items = String(raw || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const out: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> =
+    [];
   for (const it of items) {
     const m = it.match(/^(basic|fluent|reviewer)(?:\*(\d+))?$/i);
     if (!m) continue;
@@ -89,10 +96,11 @@ function parsePipelineEnv(raw: string): Array<{ agent: 'basic' | 'fluent' | 'rev
     const runs = Math.max(1, parseInt(m[2] ?? '1', 10) || 1);
     out.push({ agent, runs });
   }
-  if (out.length === 0) return [
-    { agent: 'basic', runs: 1 },
-    { agent: 'fluent', runs: 1 },
-    { agent: 'reviewer', runs: 1 },
-  ];
+  if (out.length === 0)
+    return [
+      { agent: 'basic', runs: 1 },
+      { agent: 'fluent', runs: 1 },
+      { agent: 'reviewer', runs: 1 },
+    ];
   return out;
 }

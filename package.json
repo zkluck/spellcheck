@@ -1,7 +1,7 @@
 {
   "name": "spellcheck",
   "version": "1.0.0",
-  "description": "检测中文文本的语法，拼写，标点符号，重复等错误的网站",
+  "description": "AI检测中文文本的语法，拼写，标点符号，重复等错误的网站",
   "private": true,
   "scripts": {
     "dev": "next dev",

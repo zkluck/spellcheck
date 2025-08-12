@@ -1,6 +1,6 @@
-# 中文文本检测系统
+# AI 中文文本检测系统
 
-这是一个基于 Next.js 和 LangChain 双智能体架构构建的中文文本检测系统，可以帮助用户检测并修正文本中的语法、拼写、标点和流畅（表达优化）问题。
+这是一个基于 Next.js 和 LangChain 双智能体架构构建的 AI 中文文本检测系统，可以帮助用户检测并修正文本中的语法、拼写、标点和流畅（表达优化）问题。
 
 ## 功能特点
 
@@ -86,6 +86,7 @@ E2E_ENABLE=0
 ## 环境变量说明
 
 - **后端**（`src/lib/config.ts`）
+
   - `ANALYZE_TIMEOUT_MS`：`analyzeText` 超时时间（毫秒）。
   - `E2E_ENABLE`：启用 E2E 场景模拟的后端分支，仅供本地/CI。
   - `WORKFLOW_PIPELINE`：多智能体顺序与次数配置，语法示例：`"basic*2, reviewer, fluent*1"`；可用 agent：`basic | fluent | reviewer`；省略 `*n` 等同 `*1`。默认：`basic*1,fluent*1,reviewer*1`。
@@ -93,11 +94,13 @@ E2E_ENABLE=0
   - 日志负载开关（`src/lib/config.ts`）：`LOG_ENABLE_PAYLOAD`（是否输出示例内容，如错误样例与建议；默认 `false`，生产建议保持关闭）。
 
 - **模型/LLM**（`src/lib/langchain/models/llm-config.ts`）
+
   - 通用模型：`OPENAI_MODEL`、`OPENAI_TEMPERATURE`、`OPENAI_MAX_TOKENS`、`OPENAI_TIMEOUT_MS`、`OPENAI_MAX_RETRIES`。
   - 轻量模型：`OPENAI_LIGHT_MODEL`、`OPENAI_LIGHT_TEMPERATURE`、`OPENAI_LIGHT_MAX_TOKENS`、`OPENAI_LIGHT_TIMEOUT_MS`、`OPENAI_LIGHT_MAX_RETRIES`。
   - 公共：`OPENAI_API_KEY`（必填）、`OPENAI_BASE_URL`（可选第三方网关）。
 
 - **前端公开配置**（`src/lib/feConfig.ts`）
+
   - `NEXT_PUBLIC_MAX_RETRIES`、`NEXT_PUBLIC_SSE_IDLE_MS`、`NEXT_PUBLIC_BASE_DELAY_MS`、`NEXT_PUBLIC_TOTAL_TIMEOUT_MS`、
     `NEXT_PUBLIC_BACKOFF_MIN_MS`、`NEXT_PUBLIC_BACKOFF_MAX_MS`。
 
@@ -226,7 +229,6 @@ data: {"type":"error","code":"aborted|internal","message":"...","requestId":"...
       ```
     - 常用字段：`ts`（时间戳）、`level`、`event`、`reqId`、`ip`、其他上下文字段。
 
-
 ## 部署
 
 本项目可以部署到 Vercel、Netlify 等支持 Next.js 的平台：
@@ -308,33 +310,36 @@ spellcheck/
 ### 智能体 Prompt 规范（关键约束）
 
 #### BasicErrorAgent（基础错误）
-- __检测范围__：
+
+- **检测范围**：
   - spelling：错别字、同音/近形误用。
   - punctuation：全角/半角混用、成对标点不匹配、重复或多余标点、类型错误。
   - grammar：明显量词错误、主谓搭配明显不当、成分残缺/重复（客观可判定）。
-- __排除__：风格/语气/主观优化、需外部知识推断的改写、纯“缺失标点”的插入类修改。
-- __输出__（仅 JSON 数组）：对象字段
+- **排除**：风格/语气/主观优化、需外部知识推断的改写、纯“缺失标点”的插入类修改。
+- **输出**（仅 JSON 数组）：对象字段
   - `type`: `"spelling" | "punctuation" | "grammar"`
   - `text`, `start`, `end`, `suggestion`, `description`, `quote`（与 text 一致）, `confidence?`(0~1)
-- __索引/编辑规则__：
+- **索引/编辑规则**：
   - UTF-16 计数；`original.slice(start, end) === text`；`end > start`。
   - 禁止空区间“纯插入”；如需插入，使用相邻的最小可替换片段实现等价插入。
-  - 最小编辑；不做大段重写；避免重叠与重复；数量≤200。
+  - 最小编辑；不做大段重写；避免重叠与重复；数量 ≤200。
 
 #### FluentAgent（流畅/表达）
-- __检测范围__：语义通顺、语序更顺、常见搭配/用词更地道、重复与冗余精简、表达更清晰（不改变原意、最小编辑）。
-- __排除__：所有基础错误（spelling/punctuation/grammar）、需要上下文推断的改写、风格化/主观改写。
-- __输出__（仅 JSON 数组）：对象字段
+
+- **检测范围**：语义通顺、语序更顺、常见搭配/用词更地道、重复与冗余精简、表达更清晰（不改变原意、最小编辑）。
+- **排除**：所有基础错误（spelling/punctuation/grammar）、需要上下文推断的改写、风格化/主观改写。
+- **输出**（仅 JSON 数组）：对象字段
   - `type: "fluency"`
   - `text`, `start`, `end`, `suggestion`（删除用空字符串）、`description`, `quote`（与 text 一致）, `confidence?`
-- __索引/编辑规则__：与 Basic 相同；尤其禁止空区间“纯插入”，需以最小替换片段等价实现插入；去重与不重叠。
+- **索引/编辑规则**：与 Basic 相同；尤其禁止空区间“纯插入”，需以最小替换片段等价实现插入；去重与不重叠。
 
 #### ReviewerAgent（审阅裁决）
-- __输入__：Basic/Fluent 合并后的候选（含 `id`）。
-- __决策__：对每个候选按 `id` 逐一 `accept | reject | modify`。
+
+- **输入**：Basic/Fluent 合并后的候选（含 `id`）。
+- **决策**：对每个候选按 `id` 逐一 `accept | reject | modify`。
   - 不得新增候选；仅在提供的 `id` 集合内裁决。
   - `modify` 必须给出可验证的 `start/end/text/suggestion`（同 UTF-16 校验规则），遵循最小编辑与不重叠；可接受/微调 `fluency`，前提是不改变原意且可读性显著提升。
-- __输出__（仅 JSON 数组）：统一 JSON 对象，字段遵循上述索引与最小编辑规则。
+- **输出**（仅 JSON 数组）：统一 JSON 对象，字段遵循上述索引与最小编辑规则。
 
 以上三者分工清晰：Basic 负责客观基础错误；Fluent 负责不改变原意的表达优化；Reviewer 进行最终一致性与质量裁决。
 
