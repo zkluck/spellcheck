@@ -4,7 +4,7 @@
 
 ## 功能特点
 
-- **多智能体检测**：系统集成了两种专业智能体，分别负责检测不同类型的文本问题
+- **多智能体检测**：系统集成了多智能体（Basic、Fluent、Reviewer），分别负责检测不同类型的文本问题（是否执行 Reviewer 由后端 `WORKFLOW_PIPELINE` 决定）
 
   - 基础错误智能体（BasicErrorAgent）：检测拼写、标点、基础语法等客观错误
   - 流畅智能体（FluentAgent）：检测语义通顺、冗余重复与表达优化问题
@@ -88,6 +88,8 @@ E2E_ENABLE=0
 - **后端**（`src/lib/config.ts`）
   - `ANALYZE_TIMEOUT_MS`：`analyzeText` 超时时间（毫秒）。
   - `E2E_ENABLE`：启用 E2E 场景模拟的后端分支，仅供本地/CI。
+  - `WORKFLOW_PIPELINE`：多智能体顺序与次数配置，语法示例：`"basic*2, reviewer, fluent*1"`；可用 agent：`basic | fluent | reviewer`；省略 `*n` 等同 `*1`。默认：`basic*1,fluent*1,reviewer*1`。
+  - 日志相关（`src/lib/logger.ts`）：`LOG_TO_FILE`（默认 Node 环境为 `true`）、`LOG_DIR`（默认 `logs`）、`LOG_FILE_PREFIX`（默认 `app`）、`LOG_FILE_LEVEL`（`debug|info|warn|error`，默认 `info`）。
 
 - **模型/LLM**（`src/lib/langchain/models/llm-config.ts`）
   - 通用模型：`OPENAI_MODEL`、`OPENAI_TEMPERATURE`、`OPENAI_MAX_TOKENS`、`OPENAI_TIMEOUT_MS`、`OPENAI_MAX_RETRIES`。
@@ -174,6 +176,24 @@ yarn dev
 }
 ```
 
+### SSE 流式协议
+
+- 当请求头 `Accept: text/event-stream` 时，后端返回 SSE 流。
+- 事件格式：
+
+```text
+:ready                      # 首个注释，帮助代理尽快建立流
+:keep-alive                 # 每 15s 心跳一次
+data: {"type":"chunk","agent":"basic","errors":[...]}
+data: {"type":"chunk","agent":"fluent","errors":[...]}
+data: {"type":"chunk","agent":"reviewer","errors":[...]}
+data: {"type":"warning","agent":"reviewer","message":"..."}
+data: {"type":"final","errors":[...],"meta":{"elapsedMs":123,"enabledTypes":[...]}}
+data: {"type":"error","code":"aborted|internal","message":"...","requestId":"..."}
+```
+
+- 注意：所有 `errors` 元素已按 `ErrorItemSchema` 进行二次校验与清洗。
+
 ## 部署
 
 本项目可以部署到 Vercel、Netlify 等支持 Next.js 的平台：
@@ -224,7 +244,11 @@ spellcheck/
 │   └── types/                  # 类型定义（ErrorItem/AnalyzeOptions 等）
 ├── tests/
 │   ├── unit/                   # 单元测试（Vitest）
-│   └── integration/            # 集成测试（含 /api/check）
+│   ├── integration/            # 集成测试（含 /api/check）
+│   └── e2e/                    # 端到端测试（Playwright）
+├── .github/
+│   └── workflows/ci.yml        # CI 工作流（构建、单测、安装浏览器、E2E）
+├── playwright.config.ts        # Playwright 配置
 ├── .env.example                # 环境变量示例
 ├── next.config.js              # Next.js 配置
 ├── package.json                # 项目依赖与脚本
@@ -331,6 +355,16 @@ npm run e2e                      # 运行 E2E
 - `NEXT_PUBLIC_SSE_IDLE_MS`, `NEXT_PUBLIC_TOTAL_TIMEOUT_MS`, `NEXT_PUBLIC_BASE_DELAY_MS`, `NEXT_PUBLIC_BACKOFF_MIN_MS`, `NEXT_PUBLIC_BACKOFF_MAX_MS`, `NEXT_PUBLIC_MAX_RETRIES`
 
 如需调整端口或基址，请修改 `playwright.config.ts` 的 `use.baseURL` 与 `webServer.port`/`env.PORT`。
+
+#### E2E 模拟场景触发方式
+
+- 通过请求头或 Cookie 触发：
+  - 请求头：`x-e2e-scenario: sse-garbage-then-final | long-stream | idle-no-final`
+  - Cookie：`e2e_scenario=sse-garbage-then-final | long-stream | idle-no-final`
+- 三种内置场景：
+  - `sse-garbage-then-final`：先发一段非 JSON 垃圾数据，再发合法 final。
+  - `long-stream`：先 `:ready`，延迟仅发一个 `chunk`，不发送 `final`，便于测试取消。
+  - `idle-no-final`：仅发送 `:ready` 后保持空闲，不发送任何数据与 `final`。
 
 ### 持续集成（GitHub Actions）
 
