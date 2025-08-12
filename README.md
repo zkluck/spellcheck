@@ -90,6 +90,7 @@ E2E_ENABLE=0
   - `E2E_ENABLE`：启用 E2E 场景模拟的后端分支，仅供本地/CI。
   - `WORKFLOW_PIPELINE`：多智能体顺序与次数配置，语法示例：`"basic*2, reviewer, fluent*1"`；可用 agent：`basic | fluent | reviewer`；省略 `*n` 等同 `*1`。默认：`basic*1,fluent*1,reviewer*1`。
   - 日志相关（`src/lib/logger.ts`）：`LOG_TO_FILE`（默认 Node 环境为 `true`）、`LOG_DIR`（默认 `logs`）、`LOG_FILE_PREFIX`（默认 `app`）、`LOG_FILE_LEVEL`（`debug|info|warn|error`，默认 `info`）。
+  - 日志负载开关（`src/lib/config.ts`）：`LOG_ENABLE_PAYLOAD`（是否输出示例内容，如错误样例与建议；默认 `false`，生产建议保持关闭）。
 
 - **模型/LLM**（`src/lib/langchain/models/llm-config.ts`）
   - 通用模型：`OPENAI_MODEL`、`OPENAI_TEMPERATURE`、`OPENAI_MAX_TOKENS`、`OPENAI_TIMEOUT_MS`、`OPENAI_MAX_RETRIES`。
@@ -193,6 +194,38 @@ data: {"type":"error","code":"aborted|internal","message":"...","requestId":"...
 ```
 
 - 注意：所有 `errors` 元素已按 `ErrorItemSchema` 进行二次校验与清洗。
+
+## 日志与可观测性
+
+- **统一日志**：后端统一使用 `src/lib/logger.ts` 的结构化日志；API 路由与多智能体均输出到控制台与可选文件。
+- **请求关联 ID**：
+  - 支持读取请求头 `X-Request-Id`，若无则自动生成；在响应头也会回传。
+  - 日志中字段为 `reqId`，可用于跨层追踪（API → analyze → agents）。
+- **事件命名规范（点分式）**：
+  - API 路由（`src/app/api/check/route.ts`）
+    - `api.check.request.received`、`api.check.request.bad_request`、`api.check.pipeline`、`api.check.e2e.scenario.detected`
+    - `api.check.json.start`、`api.check.json.done`
+    - `api.check.sse.start`、`api.check.sse.chunk`、`api.check.sse.final`、`api.check.sse.error`、`api.check.sse.close`
+    - 未处理错误：`api.check.unhandled_error`
+  - 分析核心（`src/lib/langchain/index.ts`）
+    - `analyze.start`、`analyze.done`、`analyze.error`
+  - 协调器与智能体（`src/lib/langchain/agents/coordinator/CoordinatorAgent.ts`）
+    - `agent.basic.run.summary`、`agent.basic.run.error`
+    - `agent.fluent.run.summary`、`agent.fluent.run.error`
+    - `agent.reviewer.run.summary`、`agent.reviewer.run.error`
+    - 通用失败：`agent.failed`（包含 `agent` 字段）
+- **敏感负载控制**：
+  - 通过 `LOG_ENABLE_PAYLOAD=false`（默认）避免在日志记录示例文本与建议。
+  - 开发/调试场景可临时设为 `true`，生产环境务必保持 `false`。
+- **查看日志**：
+  - 控制台：开发环境直接查看终端输出。
+  - 文件：当 `LOG_TO_FILE=true` 时，日志写入 `logs/` 目录，文件名形如 `app-YYYY-MM-DD.log`。
+    - Windows PowerShell 实时查看：
+      ```powershell
+      Get-Content -Path .\logs\app-*.log -Wait
+      ```
+    - 常用字段：`ts`（时间戳）、`level`、`event`、`reqId`、`ip`、其他上下文字段。
+
 
 ## 部署
 

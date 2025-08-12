@@ -21,6 +21,16 @@ function getEnvNumber(key: string, defaultValue: number): number {
 }
 
 /**
+ * 获取布尔类型环境变量，如果不存在则返回默认值
+ * 真值: 1,true,yes,on（忽略大小写）
+ */
+function getEnvBool(key: string, defaultValue: boolean): boolean {
+  const v = process.env[key];
+  if (v === undefined) return defaultValue;
+  return /^(1|true|yes|on)$/i.test(v);
+}
+
+/**
  * 应用配置
  */
 export const config = {
@@ -44,6 +54,17 @@ export const config = {
     } as {
       pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }>;
     },
+  },
+  /**
+   * 日志相关配置
+   */
+  logging: {
+    /**
+     * 是否允许在日志中输出示例内容（如文本片段、建议等）。
+     * 默认: false
+     * 环境变量: LOG_ENABLE_PAYLOAD
+     */
+    enablePayload: getEnvBool('LOG_ENABLE_PAYLOAD', false),
   },
   
 };

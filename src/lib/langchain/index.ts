@@ -18,10 +18,11 @@ type StreamCallback = (chunk: { agent: string; response: AgentResponse }) => voi
  * @returns 一个包含所有检测到的错误项的数组。
  */
 export async function analyzeText(
-  text: string, 
-  options: AnalyzeOptions, 
+  text: string,
+  options: AnalyzeOptions,
   streamCallback?: StreamCallback,
   signal?: AbortSignal,
+  context?: { reqId?: string },
 ): Promise<ErrorItem[]> {
   if (!text || typeof text !== 'string') {
     return [];
@@ -35,7 +36,7 @@ export async function analyzeText(
 
   try {
     const startedAt = Date.now();
-    logger.info('analyzeText:start', { enabledTypes: options.enabledTypes, textLength: text.length });
+    logger.info('analyze.start', { reqId: context?.reqId, enabledTypes: options.enabledTypes, textLength: text.length });
 
     // 若上游已中止，直接抛出
     if (signal?.aborted) {
@@ -58,19 +59,20 @@ export async function analyzeText(
     }
 
     // 直接调用 coordinator，并传入合并后的 signal
-    const result = await coordinator.call({ text, options }, streamCallback, ac.signal);
+    const result = await coordinator.call({ text, options }, streamCallback, ac.signal, context);
 
     const elapsedMs = Date.now() - startedAt;
-    logger.info('analyzeText:done', { 
-      elapsedMs, 
+    logger.info('analyze.done', {
+      reqId: context?.reqId,
+      elapsedMs,
       resultCount: result.result?.length ?? 0,
-      timeoutMs: TIMEOUT_MS
+      timeoutMs: TIMEOUT_MS,
     });
     return result.result;
   } catch (error) {
     const isAbort = (error as any)?.name === 'AbortError';
     const msg = (error as Error)?.message ?? String(error);
-    logger.error('analyzeText:error', { error: msg, aborted: isAbort });
+    logger.error('analyze.error', { reqId: context?.reqId, error: msg, aborted: isAbort });
 
     // 在流式传输中，错误已在 API 路由层处理，这里返回空数组即可
     if (streamCallback) {

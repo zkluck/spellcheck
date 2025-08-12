@@ -8,6 +8,17 @@ import { z } from 'zod';
 import { ReviewerAgent } from '@/lib/langchain/agents/reviewer/ReviewerAgent';
 import { config } from '@/lib/config';
 
+function summarizeItems(items: ErrorItem[] | undefined) {
+  if (!items) {
+    return { count: 0, types: {} };
+  }
+  const types = items.reduce((acc, item) => {
+    acc[item.type] = (acc[item.type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  return { count: items.length, types };
+}
+
 type IndexMapFn = (i: number) => number;
 
 // 定义 CoordinatorAgent 的输入结构
@@ -37,7 +48,12 @@ export class CoordinatorAgent {
     this.reviewerAgent = new ReviewerAgent();
   }
 
-  async call(input: CoordinatorAgentInput, streamCallback?: StreamCallback, signal?: AbortSignal): Promise<AgentResponse> {
+  async call(
+    input: CoordinatorAgentInput,
+    streamCallback?: StreamCallback,
+    signal?: AbortSignal,
+    context?: { reqId?: string },
+  ): Promise<AgentResponse> {
     const { text, options } = input;
     const { enabledTypes } = options;
     
@@ -60,14 +76,17 @@ export class CoordinatorAgent {
         const t = String(it.type ?? 'unknown');
         types[t] = (types[t] ?? 0) + 1;
       }
-      const examples = list.slice(0, 3).map((it) => ({
-        id: it.id,
-        type: it.type,
-        text: it.text,
-        suggestion: it.suggestion,
-        range: [it.start, it.end],
-      }));
-      return { count: list.length, types, examples };
+      const includeExamples = config.logging.enablePayload === true;
+      const examples = includeExamples
+        ? list.slice(0, 3).map((it) => ({
+            id: it.id,
+            type: it.type,
+            text: it.text,
+            suggestion: it.suggestion,
+            range: [it.start, it.end],
+          }))
+        : undefined;
+      return { count: list.length, types, ...(examples ? { examples } : {}) };
     }
     // 简化：使用 pipeline 控制顺序与次数
     const pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> = (config.langchain.workflow as any).pipeline ?? [
@@ -120,11 +139,11 @@ export class CoordinatorAgent {
               sourceById.set(it.id, 'basic');
               basicResultsAll.push(it as ErrorItem);
             }
-            logger.info(`[AGENT][BASIC][RUN ${basicRun}] SUMMARY`, summarizeItems(normalizedBasic.result));
-            if (normalizedBasic.error) logger.warn(`[AGENT][BASIC][RUN ${basicRun}] ERROR: ${normalizedBasic.error}`);
+            logger.info('agent.basic.run.summary', { reqId: context?.reqId, run: basicRun, ...summarizeItems(normalizedBasic.result) });
+            if (normalizedBasic.error) logger.warn('agent.basic.run.error', { reqId: context?.reqId, run: basicRun, error: normalizedBasic.error });
             recomputePatched();
           } catch (e) {
-            logger.warn('Agent failed', { agent: 'basic', reason: (e as Error)?.message });
+            logger.warn('agent.failed', { reqId: context?.reqId, agent: 'basic', reason: (e as Error)?.message });
           }
         }
       } else if (step.agent === 'fluent') {
@@ -171,10 +190,10 @@ export class CoordinatorAgent {
               fluentResultsAll.push(it as ErrorItem);
             }
             if (rawFluent.length > 0) fluentRawResultsAll.push(...rawFluent);
-            logger.info(`[AGENT][FLUENT][RUN ${fluentRun}] SUMMARY`, summarizeItems(normalizedFluent.result));
-            if (fluentRes.error) logger.warn(`[AGENT][FLUENT][RUN ${fluentRun}] ERROR: ${fluentRes.error}`);
+            logger.info('agent.fluent.run.summary', { reqId: context?.reqId, run: fluentRun, ...summarizeItems(normalizedFluent.result) });
+            if (fluentRes.error) logger.warn('agent.fluent.run.error', { reqId: context?.reqId, run: fluentRun, error: fluentRes.error });
           } catch (e) {
-            logger.warn('Agent failed', { agent: 'fluent', reason: (e as Error)?.message });
+            logger.warn('agent.failed', { reqId: context?.reqId, agent: 'fluent', reason: (e as Error)?.message });
           }
         }
       } else if (step.agent === 'reviewer') {
@@ -187,16 +206,30 @@ export class CoordinatorAgent {
               candidates: candidateList.map((c) => ({ id: c.id, text: c.text, start: c.start, end: c.end, suggestion: c.suggestion, type: c.type, explanation: c.explanation ?? '' })),
             };
             const reviewRes = await this.reviewerAgent.call(reviewerInput as any, signal);
-            if (streamCallback) streamCallback({ agent: 'reviewer', response: reviewRes });
-            logger.info(`[AGENT][REVIEWER][RUN ${reviewerRun}] SUMMARY`, summarizeItems(reviewRes.result));
-            if (reviewRes.error) logger.warn(`[AGENT][REVIEWER][RUN ${reviewerRun}] ERROR: ${reviewRes.error}`);
-            const refinedOnce = (reviewRes.result ?? []).map((it) => {
+
+            let finalResult: ErrorItem[] = reviewRes.result ?? [];
+            if (reviewRes.result && reviewRes.decisions) {
+              const acceptedIds = new Set(reviewRes.decisions.filter(d => d.status !== 'reject').map(d => d.id));
+              finalResult = reviewRes.result.filter(item => acceptedIds.has(item.id));
+            }
+
+            if (streamCallback) {
+              streamCallback({ agent: 'reviewer', response: { ...reviewRes, result: finalResult } });
+            }
+
+            logger.info('agent.reviewer.run.summary', { reqId: context?.reqId, run: reviewerRun, ...summarizeItems(finalResult) });
+            if (reviewRes.error) {
+              logger.warn('agent.reviewer.run.error', { reqId: context?.reqId, run: reviewerRun, error: reviewRes.error });
+            }
+
+            const refinedOnce = finalResult.map((it) => {
               const src = sourceById.get(it.id);
               return src ? ({ ...it, metadata: { ...(it.metadata ?? {}), source: src } } as ErrorItem) : it;
             });
+
             allResults.push({ result: refinedOnce });
           } catch (e) {
-            logger.warn('Agent failed', { agent: 'reviewer', reason: (e as Error)?.message });
+            logger.warn('agent.failed', { reqId: context?.reqId, agent: 'reviewer', reason: (e as Error)?.message });
           }
         }
       }

@@ -2,6 +2,8 @@
 import { z } from 'zod';
 import { ErrorItemSchema } from '@/types/error';
 import { randomUUID } from 'crypto';
+import { logger } from '@/lib/logger';
+import { config } from '@/lib/config';
 
 // 明确使用 Node.js 运行时，确保 SSE 与服务端能力可用
 export const runtime = 'nodejs';
@@ -43,10 +45,12 @@ export async function POST(request: Request) {
     const ip = getIp(request);
     const log = (event: string, details: Record<string, any> = {}) => {
       try {
-        console.info(JSON.stringify({ ts: new Date().toISOString(), event, requestId, ip, ...details }));
+        logger.info(`api.check.${event}`, { reqId: requestId, ip, ...details });
       } catch {}
     };
-    log('request_received', { method: 'POST', path: '/api/check' });
+    log('request.received', { method: 'POST', path: '/api/check' });
+    // 记录当前 pipeline 配置，便于复现
+    try { log('pipeline', { pipeline: (config.langchain.workflow as any)?.pipeline }); } catch {}
     // E2E 测试注入：仅当设置 E2E_ENABLE=1 时，允许通过自定义头控制模拟场景
     // 为避免 Response body 处理问题，E2E 场景优先处理，不预先消费请求体
     const e2eEnabled = process.env.E2E_ENABLE === '1';
@@ -65,6 +69,7 @@ export async function POST(request: Request) {
         });
       }
       const e2eScenario = request.headers.get('x-e2e-scenario') || cookieMap.get('e2e_scenario') || '';
+      if (e2eScenario) log('e2e.scenario.detected', { scenario: e2eScenario });
 
 
       // 其他 E2E 场景需要消费请求体，因为它们返回流响应
@@ -176,7 +181,7 @@ export async function POST(request: Request) {
     const parsed = BodySchema.safeParse(reqJson);
 
     if (!parsed.success) {
-      log('bad_request', { zod: parsed.error.flatten() });
+      log('request.bad_request', { zod: parsed.error.flatten() });
       return new Response(JSON.stringify({ error: '请求参数不合法', details: parsed.error.flatten() }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
@@ -197,8 +202,8 @@ export async function POST(request: Request) {
           warnings.push(String(chunk.response.error));
         }
       };
-      log('json_mode_start');
-      const errors = await analyzeText(text, options, collectCallback, request.signal);
+      log('json.start');
+      const errors = await analyzeText(text, options, collectCallback, request.signal, { reqId: requestId });
       const sanitized = sanitizeErrors(errors);
       const elapsedMs = Date.now() - startedAt;
       const body = {
@@ -209,7 +214,7 @@ export async function POST(request: Request) {
           ...(warnings.length ? { warnings } : {}),
         },
       };
-      log('json_mode_done', { elapsedMs, warnings: warnings.length, errorCount: sanitized.length });
+      log('json.done', { elapsedMs, warnings: warnings.length, errorCount: sanitized.length });
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
@@ -236,7 +241,7 @@ export async function POST(request: Request) {
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
             if (obj?.type === 'chunk') {
-              try { log('sse_chunk', { agent: obj.agent, errorCount: Array.isArray(obj.errors) ? obj.errors.length : 0 }); } catch {}
+              try { log('sse.chunk', { agent: obj.agent, errorCount: Array.isArray(obj.errors) ? obj.errors.length : 0 }); } catch {}
             }
           } catch {
             // 如果写入失败，视为已关闭，忽略后续写入
@@ -272,9 +277,9 @@ export async function POST(request: Request) {
 
         try {
           const startedAt = Date.now();
-          log('sse_start');
+          log('sse.start');
           // 调用核心分析函数，并传入流式回调
-          const finalResult = await analyzeText(text, options, streamCallback, request.signal);
+          const finalResult = await analyzeText(text, options, streamCallback, request.signal, { reqId: requestId });
           const elapsedMs = Date.now() - startedAt;
 
           // 在流的末尾发送最终的合并结果和元数据
@@ -287,14 +292,14 @@ export async function POST(request: Request) {
             },
           };
           safeEnqueue(finalData);
-          log('sse_final', { elapsedMs, errorCount: Array.isArray(finalData.errors) ? finalData.errors.length : 0 });
+          log('sse.final', { elapsedMs, errorCount: Array.isArray(finalData.errors) ? finalData.errors.length : 0 });
         } catch (error) {
           const err: any = error;
           const message = err?.message || String(err);
           const aborted = (request as any)?.signal?.aborted === true || err?.name === 'AbortError';
           const code = aborted ? 'aborted' : 'internal';
           safeEnqueue({ type: 'error', code, message, requestId });
-          log('sse_error', { code, message });
+          log('sse.error', { code, message });
         } finally {
           clearInterval(keepAlive);
           request.signal?.removeEventListener?.('abort', abortHandler as any);
@@ -302,7 +307,7 @@ export async function POST(request: Request) {
             try { controller.close(); } catch {}
             isClosed = true;
           }
-          log('sse_close', { aborted: (request as any)?.signal?.aborted === true, totalElapsedMs: Date.now() - startedAtAll });
+          log('sse.close', { aborted: (request as any)?.signal?.aborted === true, totalElapsedMs: Date.now() - startedAtAll });
         }
       },
     });
@@ -317,7 +322,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    try { console.error(JSON.stringify({ ts: new Date().toISOString(), event: 'unhandled_error', requestId, error: (error as any)?.message })); } catch {}
+    try { logger.error('api.check.unhandled_error', { reqId: requestId, error: (error as any)?.message }); } catch {}
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
