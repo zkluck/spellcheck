@@ -636,17 +636,18 @@ export default function ResultPanel({
                 >
                   忽略
                 </button>
-                <button
-                  className={cn('error-item__apply-button')}
-                  onClick={(e) => {
-                    e.stopPropagation(); // Prevent li onClick from firing
-                    onApplyError(error);
-                  }}
-                  disabled={!error.suggestion || error.suggestion === error.text}
-                  title={!error.suggestion || error.suggestion === error.text ? '该项仅为提示，无可用建议' : '应用此修正'}
-                >
-                  修正
-                </button>
+                {error.suggestion && error.suggestion !== error.text && (
+                  <button
+                    className={cn('error-item__apply-button')}
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent li onClick from firing
+                      onApplyError(error);
+                    }}
+                    title={'应用此修正'}
+                  >
+                    修正
+                  </button>
+                )}
               </div>
             </div>
             <div className={cn('error-item__body')}>
