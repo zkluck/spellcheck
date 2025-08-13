@@ -2,19 +2,19 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 16px;
+  padding: 12px 16px;
   position: relative;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
   background:
     linear-gradient(#ffffff, #ffffff) padding-box,
-    linear-gradient(135deg, rgba(14,165,233,0.6), rgba(99,102,241,0.6)) border-box;
-  box-shadow: 0 4px 18px rgba(17, 24, 39, 0.06);
+    linear-gradient(135deg, rgba(14,165,233,0.45), rgba(99,102,241,0.45)) border-box;
+  box-shadow: 0 6px 20px rgba(17, 24, 39, 0.06);
 }
 
 .control-bar__info {
   font-size: 14px;
-  color: #666;
+  color: #475569;
 }
 
 .control-bar__check-button {
@@ -22,28 +22,28 @@
   font-size: 14px;
   font-weight: 600;
   color: #ffffff;
-  background-image: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  background-image: linear-gradient(135deg, #3b82f6, #6366f1);
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(99,102,241,0.28), 0 2px 6px rgba(59,130,246,0.18);
+  box-shadow: 0 10px 26px rgba(99,102,241,0.26), 0 2px 6px rgba(59,130,246,0.16);
   transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
 }
 
 .control-bar__check-button:hover {
   transform: translateY(-1px) scale(1.01);
-  box-shadow: 0 12px 30px rgba(99,102,241,0.35), 0 4px 10px rgba(59,130,246,0.22);
+  box-shadow: 0 12px 30px rgba(99,102,241,0.32), 0 4px 10px rgba(59,130,246,0.2);
   filter: saturate(1.05);
 }
 
 .control-bar__check-button:disabled {
-  opacity: 0.55;
+  opacity: 0.6;
   cursor: not-allowed;
   box-shadow: none;
 }
 
 .control-bar__check-button:focus-visible {
-  outline: 2px solid rgba(99,102,241,0.6);
+  outline: 2px solid rgba(99,102,241,0.65);
   outline-offset: 2px;
 }
 
@@ -51,13 +51,13 @@
   .control-bar {
     background:
       linear-gradient(#0f172a, #0f172a) padding-box,
-      linear-gradient(135deg, rgba(34,211,238,0.5), rgba(99,102,241,0.5)) border-box;
+      linear-gradient(135deg, rgba(34,211,238,0.4), rgba(99,102,241,0.4)) border-box;
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   }
   .control-bar__info { color: #cbd5e1; }
   .control-bar__check-button {
     background-image: linear-gradient(135deg, #22d3ee, #7c3aed);
-    box-shadow: 0 10px 30px rgba(124,58,237,0.35), 0 3px 10px rgba(34,211,238,0.2);
+    box-shadow: 0 10px 30px rgba(124,58,237,0.32), 0 3px 10px rgba(34,211,238,0.18);
   }
 }
 

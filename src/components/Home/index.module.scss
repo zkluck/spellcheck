@@ -6,8 +6,11 @@
   min-height: 100svh;
   min-height: 100lvh;
   min-height: 100dvh;
-  padding: 32px 20px;
-  background: #000000;
+  padding: 48px 24px;
+  /* 更克制的浅色渐变底，营造高级感 */
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(99,102,241,0.10), transparent 55%),
+              radial-gradient(1000px 520px at 90% 0%, rgba(14,165,233,0.10), transparent 50%),
+              linear-gradient(180deg, #f7f8fb 0%, #ffffff 100%);
   overflow: hidden; /* 让发光层不外溢 */
 }
 
@@ -15,9 +18,10 @@
   content: '';
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
-  background-size: 24px 24px, 24px 24px;
+  /* 更轻的网格噪点，减少压迫感 */
+  background-image: linear-gradient(rgba(2,6,23,0.035) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(2,6,23,0.035) 1px, transparent 1px);
+  background-size: 22px 22px, 22px 22px;
   pointer-events: none;
   z-index: 0;
 }
@@ -31,10 +35,10 @@
   width: 120%;
   height: 150%;
   background: conic-gradient(from 200deg at 70% 40%,
-              rgba(14,165,233,0.28), rgba(99,102,241,0.28), rgba(168,85,247,0.28), rgba(34,211,238,0.28), rgba(14,165,233,0.28));
-  filter: blur(40px);
-  opacity: 0.85;
-  animation: home-glow-spin 20s linear infinite;
+              rgba(14,165,233,0.18), rgba(99,102,241,0.16), rgba(168,85,247,0.12), rgba(34,211,238,0.14), rgba(14,165,233,0.18));
+  filter: blur(52px);
+  opacity: 0.35; /* 大幅降低存在感 */
+  animation: home-glow-spin 32s linear infinite;
   pointer-events: none;
   z-index: 0;
 }
@@ -66,7 +70,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
   grid-template-rows: minmax(0, 1fr); /* 关键修复：定义行高以约束其子项 */
-  gap: 20px;
+  gap: 22px;
   flex: 1;       /* 占满剩余高度 */
   min-height: 0; /* 避免子项溢出时撑破布局 */
   overflow: hidden; /* 关键修复：与 grid-template-rows 配合，隐藏外部滚动条 */
@@ -84,28 +88,27 @@
   gap: 12px;
   align-items: center;
   margin: 8px 0;
-  color: #e5e7eb; /* 提升对比度 */
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6); /* 在复杂背景上提升可读性 */
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.28));
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 6px 10px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  color: #0f172a;
+  background: rgba(255,255,255,0.65);
+  backdrop-filter: saturate(120%) blur(8px);
+  border: 1px solid rgba(2,6,23,0.06);
+  border-radius: 10px;
+  padding: 8px 12px;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.05);
 }
 
 .home__reviewer-label {
-  color: #f3f4f6;
+  color: #0f172a;
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 0.2px;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
 }
 
 .home__reviewer-option {
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  color: #e5e7eb;
+  color: #334155;
 }
 
 .home__reviewer-input {
@@ -121,10 +124,10 @@
 }
 
 .home__title {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
-  margin: 4px 0 16px 2px;
-  background: linear-gradient(90deg, #0ea5e9, #6366f1 50%, #22d3ee);
+  margin: 2px 0 18px 2px;
+  background: linear-gradient(90deg, #0ea5e9, #6366f1 45%, #22d3ee);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -139,14 +142,16 @@
 /* 暗色模式 */
 @media (prefers-color-scheme: dark) {
   .home__main {
-    background: #000000;
+    background: radial-gradient(1200px 600px at 20% -10%, rgba(99,102,241,0.12), transparent 55%),
+                radial-gradient(1000px 520px at 90% 0%, rgba(14,165,233,0.12), transparent 50%),
+                linear-gradient(180deg, #0b1220 0%, #0b1220 100%);
   }
   .home__main::before {
-    background-image: linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px),
-                      linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px);
+    background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
   }
   .home__title {
-    background: linear-gradient(90deg, #22d3ee, #60a5fa 50%, #a78bfa);
+    background: linear-gradient(90deg, #22d3ee, #60a5fa 45%, #a78bfa);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -161,11 +166,11 @@
 /* 降低动画偏好时：保持布局，移除多余特效 */
 @media (prefers-reduced-motion: reduce) {
   .home__main::before { display: none; }
-  .home__main::after { animation: none; }
+  .home__main::after { animation: none; opacity: 0.2; }
 }
 
 @keyframes home-glow-spin {
   0% { transform: rotate(0deg) scale(1); }
-  50% { transform: rotate(180deg) scale(1.06); }
+  50% { transform: rotate(180deg) scale(1.03); }
   100% { transform: rotate(360deg) scale(1); }
 }
