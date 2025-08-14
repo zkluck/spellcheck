@@ -126,7 +126,7 @@ function ResultPanel({
     count: viewErrors.length,
     getScrollElement: () => panelRef.current,
     getItemKey: (index) => viewErrors[index]?.id ?? String(index),
-    estimateSize: () => 96, // 估算单项高度，实际由 measureElement 矫正
+    estimateSize: () => 160, // 更接近真实均值，减少首帧跳动；实际由 measureElement 矫正
     overscan: 8,
     measureElement: (el: Element) => (el as HTMLElement).getBoundingClientRect().height,
   });
@@ -673,6 +673,7 @@ function ResultPanel({
                   })}
                   onClick={() => onSelectError(error.id)}
                 >
+                  <div className={cn('error-item__inner')}>
                   <div className={cn('error-item__header')}>
                     <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
                       {getErrorTypeLabel(error.type)}
@@ -794,6 +795,7 @@ function ResultPanel({
                       </button>
                     )}
                   </p>
+                  </div>
                 </div>
               </div>
             );

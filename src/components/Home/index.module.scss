@@ -1,11 +1,11 @@
 .home__main {
   position: relative;
   display: flex;
-  /* 视口高度兼容：先提供通用 vh，再覆盖为 svh/lvh/dvh */
-  min-height: 100vh;
-  min-height: 100svh;
-  min-height: 100lvh;
-  min-height: 100dvh;
+  /* 视口高度锁定：防止页面产生根级滚动条 */
+  height: 100vh;   /* fallback */
+  height: 100svh;  /* mobile safari */
+  height: 100lvh;  /* large viewport */
+  height: 100dvh;  /* dynamic viewport */
   padding: 24px 16px;
   /* 更克制的浅色渐变底，营造高级感 */
   background: radial-gradient(1200px 600px at 20% -10%, rgba(99,102,241,0.10), transparent 55%),
@@ -67,15 +67,26 @@
 
 .home__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  position: relative; /* 建立明确包含块，保证子项 z-index 对比可控 */
+  /* 固定右侧合理宽度区间，避免结果过多时挤占编辑器；避免横向溢出 */
+  grid-template-columns: minmax(520px, 1fr) clamp(360px, 32vw, 520px);
   grid-template-rows: minmax(0, 1fr); /* 关键修复：定义行高以约束其子项 */
+  align-items: stretch; /* 保证两列高度一致，避免堆叠错觉 */
   gap: 22px;
   flex: 1;       /* 占满剩余高度 */
   min-height: 0; /* 避免子项溢出时撑破布局 */
   overflow: hidden; /* 关键修复：与 grid-template-rows 配合，隐藏外部滚动条 */
 }
 
+/* 允许网格子项在横向收缩，避免右侧内容挤压覆盖左侧 */
+.home__layout > * {
+  min-width: 0;
+}
+
 .home__editor-section {
+  position: relative;
+  z-index: 2; /* 提升层级，确保左侧永远在右侧之上 */
+  isolation: isolate; /* 单独堆叠环境，避免跨列阴影/绘制干扰 */
   display: grid; /* 改为 grid 布局 */
   grid-template-rows: 1fr auto; /* 关键修复：让 TextEditor 占据剩余空间，审阅开关占据自身高度 */
   gap: 16px;
@@ -102,6 +113,21 @@
 }
 
 @media (max-width: 1024px) {
+  .home__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 中等屏宽下，进一步收缩右侧，避免出现横向裁剪导致“右侧挡住左侧”错觉 */
+@media (max-width: 1280px) and (min-width: 1025px) {
+  .home__layout {
+    grid-template-columns: 1fr clamp(300px, 36vw, 440px);
+    gap: 18px;
+  }
+}
+
+/* 提前在 1200px 阈值改为单列，避免夹在 1024~1200 宽度段的临界遮挡问题 */
+@media (max-width: 1200px) {
   .home__layout {
     grid-template-columns: 1fr;
   }

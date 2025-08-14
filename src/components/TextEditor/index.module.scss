@@ -1,5 +1,7 @@
 .text-editor {
   position: relative;
+  z-index: 3; /* 确保编辑器整体层级最高 */
+  isolation: isolate; /* 独立堆叠上下文，避免跨列绘制干扰 */
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   background-color: #fff;
@@ -18,7 +20,7 @@
 .text-editor:hover,
 .text-editor:focus-within {
   box-shadow: 0 12px 28px rgba(17, 24, 39, 0.10), 0 2px 6px rgba(17, 24, 39, 0.08);
-  transform: translateY(-1px);
+  transform: none; /* 避免 hover 产生新的堆叠上下文和位移 */
 }
 
 .text-editor__container {

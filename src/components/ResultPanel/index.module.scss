@@ -1,22 +1,30 @@
 .result-panel {
   flex: 1;
   position: relative;
+  z-index: 0; /* 明确置于同层级底部，避免覆盖左侧编辑区 */
+  min-height: 0; /* 允许在 grid/flex 容器中收缩，避免挤出页面滚动 */
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
   overflow-y: auto;
+  overflow-x: hidden; /* 防止横向任何溢出 */
   display: flex;
   flex-direction: column;
+  min-width: 0; /* 作为 grid 子项可正确收缩 */
+  max-width: 100%;
+  contain: paint; /* 关键：限制自身阴影与绘制不溢出其边界，避免“压住左侧”视觉 */
+  /* 将一切绘制（含阴影）裁剪在圆角矩形内，确保不跨越网格列间隙 */
+  clip-path: inset(0 round var(--radius-lg));
   background:
     linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
     linear-gradient(135deg, rgba(14,165,233,0.45), rgba(99,102,241,0.45)) border-box;
-  box-shadow: var(--shadow-lg);
+  box-shadow: none; /* 移除外层阴影，避免跨列“遮挡”视觉 */
   transition: box-shadow var(--dur-slow) var(--ease-standard), transform var(--dur-slow) var(--ease-standard);
 }
 
 .result-panel:hover,
 .result-panel:focus-within {
-  box-shadow: var(--shadow-xl);
+  box-shadow: none; /* 悬浮也不启用外层阴影 */
   /* 避免容器整体垂直位移导致与周边区块出现视觉重叠 */
   transform: none;
 }
@@ -75,17 +83,18 @@
 }
 
 .result-panel__toast {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  background: rgba(0, 0, 0, 0.8);
+  position: absolute; /* 限定在面板内部 */
+  right: 16px;
+  bottom: 16px;
+  background: rgba(0, 0, 0, 0.75);
   color: #fff;
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.4;
-  z-index: 1000;
-  box-shadow: var(--shadow-md);
+  z-index: 1; /* 不覆盖编辑器 */
+  box-shadow: var(--shadow-sm);
+  pointer-events: none; /* 仅提示，不阻挡交互 */
 }
 
 .result-panel__filters {
@@ -210,6 +219,8 @@
   left: 0;
   width: 100%;
   padding-bottom: var(--space-3); /* 唯一的项间距（可按需调大）*/
+  /* 渲染隔离，降低亚像素/重绘影响 */
+  contain: layout paint;
 }
 
 .error-item {
@@ -223,23 +234,33 @@
   background:
     linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
     linear-gradient(135deg, rgba(14,165,233,0.3), rgba(99,102,241,0.3)) border-box;
+  overflow: hidden; /* 裁剪内层阴影，避免视觉“压线” */
+  transition: transform var(--dur-medium) var(--ease-standard), filter var(--dur-medium) var(--ease-standard);
+}
+
+.error-item__inner {
+  /* 阴影移动到内层，由外层裁剪 */
   box-shadow: var(--shadow-sm);
-  transition: transform var(--dur-medium) var(--ease-standard), box-shadow var(--dur-medium) var(--ease-standard), filter var(--dur-medium) var(--ease-standard);
+  transition: box-shadow var(--dur-medium) var(--ease-standard);
 }
 
 .error-item:hover {
   /* 绝对定位的虚拟项避免垂直位移，否则会与相邻项产生重叠视觉 */
   transform: none;
-  box-shadow: var(--shadow-md);
   filter: saturate(1.02);
 }
 
-.error-item--active {
-  box-shadow: 0 0 0 2px rgba(59,130,246,0.25), var(--shadow-lg);
+.error-item:hover .error-item__inner {
+  box-shadow: var(--shadow-md);
 }
 
-.error-item--conflict {
-  box-shadow: 0 0 0 2px rgba(255,152,0,0.25), var(--shadow-lg);
+.error-item--active .error-item__inner {
+  /* 将状态阴影下沉到内层，受父层 overflow 裁剪，不会跨列溢出 */
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.25), 0 8px 18px rgba(17,24,39,0.10);
+}
+
+.error-item--conflict .error-item__inner {
+  box-shadow: 0 0 0 2px rgba(255,152,0,0.25), 0 8px 18px rgba(17,24,39,0.10);
 }
 
 .error-item:focus-visible {
@@ -252,15 +273,17 @@
     background:
       linear-gradient(#0b1220, #0b1220) padding-box,
       linear-gradient(135deg, rgba(34,211,238,0.35), rgba(99,102,241,0.35)) border-box;
+  }
+  .error-item__inner {
     box-shadow: 0 2px 14px rgba(0,0,0,0.35);
   }
-  .error-item:hover {
+  .error-item:hover .error-item__inner {
     box-shadow: 0 8px 24px rgba(0,0,0,0.45);
   }
-  .error-item--active {
-    box-shadow: 0 0 0 2px rgba(34,211,238,0.35), 0 10px 26px rgba(124,58,237,0.28);
+  .error-item--active .error-item__inner {
+    box-shadow: 0 0 0 2px rgba(34,211,238,0.35), 0 8px 28px rgba(0,0,0,0.6);
   }
-  .error-item--conflict {
+  .error-item--conflict .error-item__inner {
     box-shadow: 0 0 0 2px rgba(255,152,0,0.35), 0 10px 26px rgba(255,152,0,0.25);
   }
 }
