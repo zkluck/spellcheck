@@ -18,44 +18,92 @@ import { AgentResponseSchema } from '@/types/schemas';
 
 // 输入与模型裁决 Schema 均从共享定义中导入
 
+// 将包含 JSON 花括号的示例放到变量里，避免 ChatPromptTemplate 把花括号当占位符解析
+const REVIEW_EXAMPLES = `
+- 示例1: 接受 (accept)
+  输入 candidates:
+  [
+    { "id": "a1", "type": "spelling", "start": 2, "end": 4, "suggestion": "高兴", "explanation": "错别字" }
+  ]
+  输出:
+  [
+    { "id": "a1", "status": "accept", "explanation": "客观错误，span 合理", "confidence": 0.95 }
+  ]
+
+- 示例2: 修改 (modify)（微调 span 与建议）
+  输入 candidates:
+  [
+    { "id": "b2", "type": "punctuation", "start": 5, "end": 7, "suggestion": "！" }
+  ]
+  输出:
+  [
+    { "id": "b2", "status": "modify", "start": 5, "end": 6, "suggestion": "！", "explanation": "多余的一个感叹号" }
+  ]
+
+- 示例3: 拒绝 (reject)
+  输入 candidates:
+  [
+    { "id": "c3", "type": "fluency", "start": 0, "end": 2, "suggestion": "更加地道" }
+  ]
+  输出:
+  [
+    { "id": "c3", "status": "reject", "explanation": "主观风格化或定位不确定" }
+  ]
+
+- 示例4: 空候选
+  输入 candidates: []
+  输出: []
+`;
+
 const REVIEW_PROMPT = ChatPromptTemplate.fromMessages([
   [
     'system',
     `
-你是严格的中文文本“错误审阅/裁决”专家。请对每条候选错误给出 accept/reject/modify 判决。
+<ROLE_AND_GOAL>
+你是严格的中文文本“错误审阅/裁决”专家。你的唯一任务是对输入候选逐一给出 accept/reject/modify 的判决。
+- 覆盖性：必须对每个候选（按 id）都产出一条裁决，禁止新增或遗漏。
+- 范围：客观基础错误（拼写/标点/语法）优先正向裁决；主观风格化改写通常 reject；不改变原意的 fluency 优化可酌情 accept/modify。
+</ROLE_AND_GOAL>
 
-一、核心原则与约束
-1) 覆盖性：必须对每个输入候选（按 id）都产出一条裁决，禁止新增或遗漏。
-2) 输出格式：仅输出 JSON 数组，禁止任何额外文字/markdown。输出必须以 "[" 开头、以 "]" 结尾；若 candidates 为空则输出 []。
-3) 裁决范围：对客观基础错误（拼写/标点/语法）做正向裁决；对主观风格化改写通常 reject；对不改变原意的 fluency 优化可酌情 accept/modify。
-4) 最小编辑：接受的修改应尽可能小，不改变原意。
-5) 索引合法性：若候选索引非法或无法在原文定位，请 reject。
+<OUTPUT_FORMAT>
+你的唯一输出必须是一个 JSON 数组，即使 candidates 为空也输出 []。严禁任何额外文字或 Markdown。
 
-二、输出字段
-- id: string (与输入候选一致)
+每个 JSON 对象字段如下：
+- id: string（与输入候选一致）
 - status: "accept" | "reject" | "modify"
-- start?: number (仅在 modify 且需调整 span 时提供)
-- end?: number (同上，且 end > start)
-- suggestion?: string (在 accept/modify 时可提供更准确的建议)
-- explanation?: string (简要客观说明)
-- confidence?: number (0~1，确定性高时提供)
+- start?: number（仅在 modify 且需调整 span 时提供）
+- end?: number（同上，且 end > start）
+- suggestion?: string（在 accept/modify 时可提供更准确的建议）
+- explanation?: string（简要客观说明）
+- confidence?: number（0~1，确定性高时提供）
+</OUTPUT_FORMAT>
 
-三、判决指引
-- accept: 候选客观正确，且 span/suggestion 合理。
-- modify: 候选大体正确，但需微调 span 或 suggestion。给出必要的 start/end/suggestion 字段。
-- reject: 不确定、无法定位、超出范围、或属于不必要的主观风格改写。
+<RULES>
+1. 索引合法：若候选索引非法或无法在原文定位，请 reject。
+2. 最小编辑：接受或修改时尽可能小幅调整，不改变原意。
+3. 一致性：不得新增不存在的 id，且不得遗漏任何输入候选。
+4. 数量约束：输出数组长度必须与输入候选数一致（1:1 对齐）。
+</RULES>
+
+<EXAMPLES>
+{examples}
+</EXAMPLES>
 `.trim()
   ],
   [
     'human',
     `
-原文：
+请严格按照上述 <OUTPUT_FORMAT> 和 <RULES> 对候选进行裁决。
+
+<TEXT_TO_ANALYZE>
 {text}
+</TEXT_TO_ANALYZE>
 
-候选列表（JSON）：
+<CANDIDATES>
 {candidates}
+</CANDIDATES>
 
-请对以上所有候选逐一裁决，仅输出 JSON 数组：
+仅输出 JSON 数组：
 `.trim()
   ],
 ]);
@@ -72,6 +120,7 @@ export class ReviewerAgent {
       const messages = await REVIEW_PROMPT.formatMessages({
         text: input.text,
         candidates: JSON.stringify(input.candidates, null, 2),
+        examples: REVIEW_EXAMPLES,
       });
       const response = await guardLLMInvoke(
         (innerSignal) => llm.invoke(messages as any, { signal: innerSignal } as any),
@@ -122,12 +171,29 @@ export class ReviewerAgent {
           metadata: {
             reviewer: { status: d.status, confidence: d.confidence },
             confidence: typeof d.confidence === 'number' ? d.confidence : undefined,
+            locate: 'exact',
           },
         } as ErrorItem);
       }
 
+      // 根据配置执行过滤与裁剪
+      const requireExact = config.langchain.agents.reviewer.requireExactIndex;
+      const indexFiltered = requireExact
+        ? refined.filter((e) => (e as any).metadata?.locate === 'exact')
+        : refined;
+
+      const minC = config.langchain.agents.reviewer.minConfidence;
+      const confidenceFiltered = indexFiltered.filter((e) => {
+        const m = (e as any).metadata;
+        const c = typeof m?.confidence === 'number' ? m.confidence : (typeof m?.reviewer?.confidence === 'number' ? m.reviewer.confidence : undefined);
+        return typeof c === 'number' && c >= minC;
+      });
+
+      const maxN = config.langchain.agents.reviewer.maxOutput;
+      const finalItems = confidenceFiltered.slice(0, Math.max(0, maxN || 0));
+
       // 使用共享的 AgentResponseSchema 校验核心输出结构
-      const core = { result: refined, rawOutput };
+      const core = { result: finalItems, rawOutput };
       const parsedOut = AgentResponseSchema.safeParse(core);
       if (!parsedOut.success) {
         logger.warn('ReviewerAgent.output_invalid', { zod: parsedOut.error.flatten?.() ?? String(parsedOut.error) });

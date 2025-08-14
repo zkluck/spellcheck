@@ -299,7 +299,7 @@ spellcheck/
  │   │   ├── Home/
  │   │   ├── ResultPanel/
  │   │   ├── TextEditor/
- │   │   └── AnalyzerPanel.tsx   # 示例：分栏展示 Basic/Fluent/Final（Reviewer 开关已移除：由后端 WORKFLOW_PIPELINE 决定）
+ │   │   └── （已清理未使用的示例组件 AnalyzerPanel.tsx）
  │   ├── lib/
  │   │   ├── config.ts           # 统一配置（读取 .env）
 │   │   ├── logger.ts           # 结构化日志
@@ -391,7 +391,7 @@ spellcheck/
 
 - 使用 `analyzeText(text, options, streamCallback)`：
   - `streamCallback` 将依次收到 `agent: 'basic' | 'fluent' | 'reviewer'` 的结果片段，便于分栏实时渲染。
-  - 也可直接使用示例组件 `AnalyzerPanel.tsx`。
+  - 如需分栏演示，可自行创建示例组件（项目中已移除未使用的 AnalyzerPanel.tsx）。
 
 ### 测试建议
 

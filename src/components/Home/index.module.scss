@@ -6,7 +6,7 @@
   min-height: 100svh;
   min-height: 100lvh;
   min-height: 100dvh;
-  padding: 48px 24px;
+  padding: 24px 16px;
   /* 更克制的浅色渐变底，营造高级感 */
   background: radial-gradient(1200px 600px at 20% -10%, rgba(99,102,241,0.10), transparent 55%),
               radial-gradient(1000px 520px at 90% 0%, rgba(14,165,233,0.10), transparent 50%),
@@ -47,7 +47,6 @@
   position: relative;
   margin: 0 auto;
   width: 100%;
-  max-width: 1280px;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -83,45 +82,7 @@
   min-height: 0; /* 允许在 grid/flex 布局中正确收缩 */
 }
 
-.home__reviewer {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin: 8px 0;
-  color: #0f172a;
-  background: rgba(255,255,255,0.65);
-  backdrop-filter: saturate(120%) blur(8px);
-  border: 1px solid rgba(2,6,23,0.06);
-  border-radius: 10px;
-  padding: 8px 12px;
-  box-shadow: 0 8px 24px rgba(2,6,23,0.05);
-}
 
-.home__reviewer-label {
-  color: #0f172a;
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: 0.2px;
-}
-
-.home__reviewer-option {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  color: #334155;
-}
-
-.home__reviewer-input {
-  accent-color: #60a5fa; /* 提升 radio 可见度 */
-  width: 14px;
-  height: 14px;
-  filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.55));
-}
-
-.home__reviewer-input:focus-visible {
-  outline: 2px solid rgba(96, 165, 250, 0.7);
-  outline-offset: 2px;
-}
 
 .home__title {
   font-size: 22px;
