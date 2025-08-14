@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useCallback, useState, useEffect, useRef } from 'react';
+import { useReducer, useCallback, useState, useEffect, useRef, useMemo } from 'react';
 import classnames from 'classnames/bind';
 import TextEditor from '@/components/TextEditor';
 import ControlBar from '@/components/ControlBar';
@@ -58,16 +58,19 @@ export default function Home() {
 
     const sleep = (ms: number, signal: AbortSignal) =>
       new Promise<void>((resolve, reject) => {
-        const id = setTimeout(() => resolve(), ms);
         const onAbort = () => {
           clearTimeout(id);
-          const err = new DOMException('Aborted', 'AbortError');
-          reject(err);
+          signal.removeEventListener('abort', onAbort);
+          reject(new DOMException('Aborted', 'AbortError'));
         };
+        const id = setTimeout(() => {
+          signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, ms);
         if ((signal as any)?.aborted) {
           onAbort();
         } else {
-          signal.addEventListener('abort', onAbort, { once: true });
+          signal.addEventListener('abort', onAbort);
         }
       });
 
@@ -196,33 +199,46 @@ export default function Home() {
         let gotFinal = false;
         let currentErrors: ErrorItem[] = [];
 
-        // 读取封装：支持空闲超时
+        // 读取封装：支持空闲超时，并避免事件监听泄漏
         const readWithIdle = () =>
           new Promise<
             | ReadableStreamReadResult<Uint8Array>
             | { idle: true }
             | { error: any }
           >((resolve) => {
-            const timeoutId = setTimeout(() => resolve({ idle: true }), idleMs);
+            let settled = false;
+            let timeoutId: ReturnType<typeof setTimeout>;
+            const onAbort = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeoutId);
+              controller.signal.removeEventListener('abort', onAbort);
+              resolve({ error: new DOMException('Aborted', 'AbortError') });
+            };
+            timeoutId = setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              controller.signal.removeEventListener('abort', onAbort);
+              resolve({ idle: true });
+            }, idleMs);
             reader
               .read()
               .then((r) => {
+                if (settled) return;
+                settled = true;
                 clearTimeout(timeoutId);
+                controller.signal.removeEventListener('abort', onAbort);
                 resolve(r);
               })
               .catch((err) => {
+                if (settled) return;
+                settled = true;
                 clearTimeout(timeoutId);
+                controller.signal.removeEventListener('abort', onAbort);
                 resolve({ error: err });
               });
-            const onAbort = () => {
-              clearTimeout(timeoutId);
-              resolve({ error: new DOMException('Aborted', 'AbortError') });
-            };
             if ((controller.signal as any).aborted) onAbort();
-            else
-              controller.signal.addEventListener('abort', onAbort, {
-                once: true,
-              });
+            else controller.signal.addEventListener('abort', onAbort);
           });
 
         // eslint-disable-next-line no-constant-condition
@@ -372,13 +388,19 @@ export default function Home() {
 
   // 允许用户手动取消正在进行的检查
   const handleCancel = useCallback(() => {
-    abortRef.current?.abort();
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
   }, []);
 
   // 组件卸载时中止未完成的请求
   useEffect(() => {
     return () => {
-      abortRef.current?.abort();
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
     };
   }, []);
 
@@ -447,8 +469,9 @@ export default function Home() {
   }, []);
 
   // 仅当存在可应用的建议时，才允许“一键修正”
-  const canApplyAll = errors.some(
-    (e) => e.suggestion && e.suggestion !== e.text
+  const canApplyAll = useMemo(
+    () => errors.some((e) => e.suggestion && e.suggestion !== e.text),
+    [errors]
   );
 
   return (
@@ -471,9 +494,7 @@ export default function Home() {
             />
             {/* Reviewer 开关已移除：由后端 WORKFLOW_PIPELINE 决定是否执行 Reviewer */}
             {isLoading && retryStatus && (
-              <div style={{ color: '#667085', fontSize: 12, margin: '4px 0' }}>
-                {retryStatus}
-              </div>
+              <div className={cn('home__retry-hint')}>{retryStatus}</div>
             )}
             <ControlBar
               onCheck={handleCheck}

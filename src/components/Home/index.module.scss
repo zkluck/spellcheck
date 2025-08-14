@@ -133,6 +133,13 @@
   color: transparent;
 }
 
+/* 重试提示样式（BEM） */
+.home__retry-hint {
+  color: #667085;
+  font-size: 12px;
+  margin: 4px 0;
+}
+
 @media (max-width: 1024px) {
   .home__layout {
     grid-template-columns: 1fr;
