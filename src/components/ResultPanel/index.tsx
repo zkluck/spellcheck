@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import classnames from 'classnames/bind';
 import { ErrorItem } from '@/types/error';
 import styles from './index.module.scss';
@@ -22,7 +23,7 @@ interface ResultPanelProps {
   isLoading: boolean;
 }
 
-export default function ResultPanel({
+function ResultPanel({
   errors,
   onApplyError,
   onIgnoreError,
@@ -37,9 +38,9 @@ export default function ResultPanel({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [overflowIds, setOverflowIds] = useState<Set<string>>(new Set());
   const textRefs = useRef<Map<string, HTMLSpanElement | null>>(new Map());
-  const itemRefs = useRef<Map<string, HTMLLIElement | null>>(new Map());
   const [toastMsg, setToastMsg] = useState<string>('');
   const toastTimerRef = useRef<number | null>(null);
+  const [showHotkeys, setShowHotkeys] = useState(false);
 
   // 筛选与排序状态
   const [filterSource, setFilterSource] = useState<'all' | 'basic' | 'fluent'>('all');
@@ -112,12 +113,39 @@ export default function ResultPanel({
     return list;
   }, [errors, filterSource, sortMode]);
 
+  // id -> index 映射（用于滚动定位）
+  const idToIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    viewErrors.forEach((e, i) => m.set(e.id, i));
+    return m;
+  }, [viewErrors]);
+
+  // === 虚拟滚动 ===
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: viewErrors.length,
+    getScrollElement: () => panelRef.current,
+    getItemKey: (index) => viewErrors[index]?.id ?? String(index),
+    estimateSize: () => 96, // 估算单项高度，实际由 measureElement 矫正
+    overscan: 8,
+    measureElement: (el: Element) => (el as HTMLElement).getBoundingClientRect().height,
+  });
+
   useEffect(() => {
     measureOverflow();
     const onResize = () => measureOverflow();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [measureOverflow, viewErrors]);
+
+  // 虚拟可见区变化时也重测说明折叠（因为仅可见项会渲染）
+  useEffect(() => {
+    // 读取以触发依赖
+    void virtualizer.getVirtualItems();
+    // 小延迟，等待 DOM 稳定后测量
+    const t = window.setTimeout(() => measureOverflow(), 0);
+    return () => window.clearTimeout(t);
+  }, [virtualizer, measureOverflow, viewErrors]);
 
   // 轻量 Toast 显示/隐藏
   const showToast = useCallback((msg: string) => {
@@ -172,10 +200,8 @@ export default function ResultPanel({
     }
   }, [viewErrors, activeErrorId, onSelectError, onApplyError, onIgnoreError]);
 
-  // 选中错误时：自动展开可折叠说明，并将列表项滚动到视窗内
   useEffect(() => {
     if (!activeErrorId) return;
-    // 自动展开（仅当该项说明有折叠时）
     if (overflowIds.has(activeErrorId)) {
       setExpandedIds((prev) => {
         if (prev.has(activeErrorId)) return prev;
@@ -184,16 +210,17 @@ export default function ResultPanel({
         return next;
       });
     }
-    // 滚动定位
-    const el = itemRefs.current.get(activeErrorId);
-    if (el && typeof el.scrollIntoView === 'function') {
-      try {
-        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      } catch {
-        el.scrollIntoView({ block: 'nearest' });
-      }
-    }
   }, [activeErrorId, overflowIds]);
+
+  // 选中项变化时滚动到可见位置（虚拟滚动）
+  useEffect(() => {
+    if (!activeErrorId) return;
+    const idx = idToIndex.get(activeErrorId);
+    if (idx == null) return;
+    try {
+      virtualizer.scrollToIndex(idx, { align: 'center' });
+    } catch {}
+  }, [activeErrorId, idToIndex, virtualizer]);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -203,9 +230,18 @@ export default function ResultPanel({
       } else {
         next.add(id);
       }
+      // 下一帧重测该项高度，驱动虚拟器更新
+      setTimeout(() => {
+        const el = document.querySelector(`[data-error-id="${id}"]`);
+        if (el) {
+          try {
+            virtualizer.measureElement(el as HTMLElement);
+          } catch {}
+        }
+      }, 0);
       return next;
     });
-  }, []);
+  }, [virtualizer]);
 
   const getErrorTypeLabel = (type: string) => {
     switch (type) {
@@ -501,14 +537,28 @@ export default function ResultPanel({
   return (
     <div
       className={cn('result-panel')}
+      ref={panelRef}
       tabIndex={0}
       role="region"
       aria-label="检测结果"
       onKeyDown={handleKeyDown}
     >
+      {/* 屏幕阅读器宣告：结果完成统计 */}
+      <div className="sr-only" aria-live="polite" role="status">
+        检测完成，共 {viewErrors.length} 条结果
+      </div>
       <div className={cn('result-panel__header')}>
         <h3 className={cn('result-panel__title')}>检测结果 ({viewErrors.length})</h3>
         <div className={cn('result-panel__actions')}>
+          <button
+            className={cn('result-panel__action-button', 'result-panel__action-button--secondary')}
+            aria-expanded={showHotkeys}
+            aria-controls="hotkeys-panel"
+            onClick={() => setShowHotkeys((v) => !v)}
+            title="查看键盘快捷键"
+          >
+            快捷键
+          </button>
           <button
             className={cn('result-panel__action-button', 'result-panel__action-button--secondary')}
             onClick={handleExportJSON}
@@ -580,148 +630,194 @@ export default function ResultPanel({
           共 {viewErrors.length} 条
         </div>
       </div>
-      <ul className={cn('result-panel__error-list')}>
-        {viewErrors.map((error) => (
-          <li
-            key={error.id}
-            className={cn('error-item', {
-              'error-item--active': error.id === activeErrorId,
-              'error-item--conflict': hasConflict(error),
-            })}
-            onClick={() => onSelectError(error.id)}
-            ref={(el) => {
-              if (!el) {
-                itemRefs.current.delete(error.id);
-              } else {
-                itemRefs.current.set(error.id, el);
-              }
-            }}
-          >
-            <div className={cn('error-item__header')}>
-              <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
-                {getErrorTypeLabel(error.type)}
-              </span>
-              {(() => {
-                const c = getConfidence(error);
-                if (c == null) return null;
-                const cls = getConfidenceClass(c);
-                return (
-                  <span className={cn('error-item__confidence', cls)} title={`置信度：${(c * 100).toFixed(0)}%`}>
-                    {(c * 100).toFixed(0)}%
-                  </span>
-                );
-              })()}
-              <div className={cn('error-item__badges')}>
-                {getSources(error).map((s) => (
-                  <span key={s} className={cn('error-item__badge', `error-item__badge--source-${s}`)} title={`来源：${getSourceLabel(s)}`}>
-                    {getSourceLabel(s)}
-                  </span>
-                ))}
-                {(() => {
-                  const d = getDecision(error);
-                  if (!d) return null;
-                  return (
-                    <span className={cn('error-item__badge', `error-item__badge--decision-${d}`)} title={`审阅决策：${getDecisionLabel(d)}`}>
-                      {getDecisionLabel(d)}
-                    </span>
-                  );
-                })()}
-                {(() => {
-                  if (!hasConflict(error)) return null;
-                  const count = getConflictCount(error);
-                  return (
-                    <span className={cn('error-item__badge', 'error-item__badge--conflict')} title={count > 1 ? `存在 ${count} 处冲突` : '存在冲突'}>
-                      冲突{count > 1 ? `×${count}` : ''}
-                    </span>
-                  );
-                })()}
-              </div>
-              <div className={cn('error-item__actions')}>
-                <button
-                  className={cn('error-item__ignore-button')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onIgnoreError(error);
-                  }}
-                >
-                  忽略
-                </button>
-                {error.suggestion && error.suggestion !== error.text && (
-                  <button
-                    className={cn('error-item__apply-button')}
-                    onClick={(e) => {
-                      e.stopPropagation(); // Prevent li onClick from firing
-                      onApplyError(error);
-                    }}
-                    title={'应用此修正'}
-                  >
-                    修正
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className={cn('error-item__body')}>
-              <p className={cn('error-item__original')}>{error.text}</p>
-              <p className={cn('error-item__suggestion')}>{error.suggestion || '（无建议）'}</p>
-              {(() => {
-                const quote = getQuote(error);
-                if (!quote) return null;
-                // 若与 error.text 一致则不重复展示
-                if (quote === error.text) return null;
-                return (
-                  <p className={cn('error-item__quote')}>
-                    原文：{quote}
-                  </p>
-                );
-              })()}
-              {(() => {
-                const range = getIndexRange(error);
-                if (!range) return null;
-                return (
-                  <p className={cn('error-item__meta')}>位置：{range}</p>
-                );
-              })()}
-              {(() => {
-                const notes = getReviewerNotes(error);
-                if (!notes) return null;
-                return (
-                  <p className={cn('error-item__notes')} title={notes}>
-                    审阅说明：{notes}
-                  </p>
-                );
-              })()}
-            </div>
-            <p
-              className={cn('error-item__explanation', {
-                'error-item__explanation--expanded': expandedIds.has(error.id),
-              })}
-            >
-              <span className={cn('error-item__explanation-label')}>原因：</span>
-              <span
-                id={`exp-${error.id}`}
-                className={cn('error-item__explanation-text', {
-                  'error-item__explanation-text--clamped': overflowIds.has(error.id) && !expandedIds.has(error.id),
-                })}
-                ref={setTextRef(error.id)}
+      {showHotkeys && (
+        <div id="hotkeys-panel" className={cn('result-panel__hotkeys')} role="region" aria-label="快捷键说明">
+          <ul className={cn('result-panel__hotkeys-list')}>
+            <li><kbd>↑</kbd>/<kbd>↓</kbd> 切换上一条/下一条</li>
+            <li><kbd>Enter</kbd> 应用修正</li>
+            <li><kbd>Delete</kbd>/<kbd>Backspace</kbd> 忽略</li>
+          </ul>
+        </div>
+      )}
+      <div
+        className={cn('result-panel__error-list')}
+        role="list"
+        aria-label="错误列表"
+      >
+        <div
+          style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+        >
+          {virtualizer.getVirtualItems().map((vi) => {
+            const error = viewErrors[vi.index];
+            if (!error) return null;
+            return (
+              <div
+                key={vi.key}
+                role="listitem"
+                className={cn('error-row')}
+                ref={virtualizer.measureElement}
+                data-index={vi.index}
+                data-error-id={error.id}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${Math.round(vi.start)}px)`,
+                }}
               >
-                {getDisplayExplanation(error)}
-              </span>
-              {overflowIds.has(error.id) && (
-                <button
-                  type="button"
-                  className={cn('error-item__explanation-toggle')}
-                  onClick={(e) => { e.stopPropagation(); toggleExpand(error.id); }}
-                  aria-expanded={expandedIds.has(error.id)}
-                  aria-controls={`exp-${error.id}`}
+                <div
+                  className={cn('error-item', {
+                    'error-item--active': error.id === activeErrorId,
+                    'error-item--conflict': hasConflict(error),
+                  })}
+                  onClick={() => onSelectError(error.id)}
                 >
-                  {expandedIds.has(error.id) ? '收起' : '展开'}
-                </button>
-              )}
-            </p>
-          </li>
-        ))}
-      </ul>
+                  <div className={cn('error-item__header')}>
+                    <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
+                      {getErrorTypeLabel(error.type)}
+                    </span>
+                    {(() => {
+                      const c = getConfidence(error);
+                      if (c == null) return null;
+                      const cls = getConfidenceClass(c);
+                      return (
+                        <span className={cn('error-item__confidence', cls)} title={`置信度：${(c * 100).toFixed(0)}%`}>
+                          {(c * 100).toFixed(0)}%
+                        </span>
+                      );
+                    })()}
+                    <div className={cn('error-item__badges')}>
+                      {getSources(error).map((s) => (
+                        <span key={s} className={cn('error-item__badge', `error-item__badge--source-${s}`)} title={`来源：${getSourceLabel(s)}`}>
+                          {getSourceLabel(s)}
+                        </span>
+                      ))}
+                      {(() => {
+                        const d = getDecision(error);
+                        if (!d) return null;
+                        return (
+                          <span className={cn('error-item__badge', `error-item__badge--decision-${d}`)} title={`审阅决策：${getDecisionLabel(d)}`}>
+                            {getDecisionLabel(d)}
+                          </span>
+                        );
+                      })()}
+                      {(() => {
+                        if (!hasConflict(error)) return null;
+                        const count = getConflictCount(error);
+                        return (
+                          <span className={cn('error-item__badge', 'error-item__badge--conflict')} title={count > 1 ? `存在 ${count} 处冲突` : '存在冲突'}>
+                            冲突{count > 1 ? `×${count}` : ''}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    <div className={cn('error-item__actions')}>
+                      <button
+                        className={cn('error-item__ignore-button')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onIgnoreError(error);
+                        }}
+                      >
+                        忽略
+                      </button>
+                      {error.suggestion && error.suggestion !== error.text && (
+                        <button
+                          className={cn('error-item__apply-button')}
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent li onClick from firing
+                            onApplyError(error);
+                          }}
+                          title={'应用此修正'}
+                        >
+                          修正
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className={cn('error-item__body')}>
+                    <p className={cn('error-item__original')}>{error.text}</p>
+                    <p className={cn('error-item__suggestion')}>{error.suggestion || '（无建议）'}</p>
+                    {(() => {
+                      const quote = getQuote(error);
+                      if (!quote) return null;
+                      // 若与 error.text 一致则不重复展示
+                      if (quote === error.text) return null;
+                      return (
+                        <p className={cn('error-item__quote')}>
+                          原文：{quote}
+                        </p>
+                      );
+                    })()}
+                    {(() => {
+                      const range = getIndexRange(error);
+                      if (!range) return null;
+                      return (
+                        <p className={cn('error-item__meta')}>位置：{range}</p>
+                      );
+                    })()}
+                    {(() => {
+                      const notes = getReviewerNotes(error);
+                      if (!notes) return null;
+                      return (
+                        <p className={cn('error-item__notes')} title={notes}>
+                          审阅说明：{notes}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                  <p
+                    className={cn('error-item__explanation', {
+                      'error-item__explanation--expanded': expandedIds.has(error.id),
+                    })}
+                  >
+                    <span className={cn('error-item__explanation-label')}>原因：</span>
+                    <span
+                      id={`exp-${error.id}`}
+                      className={cn('error-item__explanation-text', {
+                        'error-item__explanation-text--clamped': overflowIds.has(error.id) && !expandedIds.has(error.id),
+                      })}
+                      ref={setTextRef(error.id)}
+                    >
+                      {getDisplayExplanation(error)}
+                    </span>
+                    {overflowIds.has(error.id) && (
+                      <button
+                        type="button"
+                        className={cn('error-item__explanation-toggle')}
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(error.id); }}
+                        aria-expanded={expandedIds.has(error.id)}
+                        aria-controls={`exp-${error.id}`}
+                      >
+                        {expandedIds.has(error.id) ? '收起' : '展开'}
+                      </button>
+                    )}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
+
+// 自定义 props 比较，避免无关状态导致的重渲染
+const areEqual = (prev: ResultPanelProps, next: ResultPanelProps) => {
+  if (prev.isLoading !== next.isLoading) return false;
+  if (prev.canUndo !== next.canUndo) return false;
+  if (prev.canApplyAll !== next.canApplyAll) return false;
+  if (prev.activeErrorId !== next.activeErrorId) return false;
+  // errors：先比引用，再比长度与顺序化 id（Home 中保持稳定顺序）
+  if (prev.errors === next.errors) return true;
+  if (prev.errors.length !== next.errors.length) return false;
+  for (let i = 0; i < prev.errors.length; i++) {
+    if (prev.errors[i].id !== next.errors[i].id) return false;
+  }
+  return true;
+};
+
+export default memo(ResultPanel, areEqual);
 
