@@ -35,10 +35,14 @@
 }
 
 .result-panel__header {
-  display: flex;
+  display: grid; /* 改为两列网格，标题与动作分列，彻底避免换行 */
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  column-gap: 12px; /* 头部两端留出间距 */
+  min-width: 0; /* 允许子项收缩，避免被挤换行 */
+  position: relative; /* 让下拉菜单位于头部层级之上 */
+  z-index: 1;
 }
 
 .result-panel--loading,
@@ -73,13 +77,81 @@
 .result-panel__title {
   font-size: 18px;
   font-weight: 600;
-  margin-bottom: var(--space-4);
+  margin-bottom: 0; /* 由 header 统一控制底部间距 */
   color: var(--color-text);
+  flex: 0 1 auto; /* 允许略微收缩 */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis; /* 标题过长时省略，避免挤压按钮 */
 }
 
 .result-panel__actions {
+  display: inline-flex;         /* 单行弹性布局 */
+  gap: 6px;
+  flex-wrap: nowrap;            /* 不换行 */
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;             /* 单行横向滚动 */
+  overflow-y: hidden;           /* 菜单已使用 portal，不需纵向溢出 */
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 更多菜单容器与按钮 */
+.result-panel__more {
+  position: relative; /* 作为菜单定位参考 */
+  flex: 0 0 auto;
+}
+
+.result-panel__more-button {
+  position: relative;
+}
+
+/* 下拉菜单样式 */
+.result-panel__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 160px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+  padding: 6px;
+  z-index: 3; /* 高于虚拟列表项与 toast */
+  display: grid;
+  gap: 4px;
+}
+
+.result-panel__menu-item {
   display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  align-items: center;
   gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.result-panel__menu-item:hover,
+.result-panel__menu-item:focus-visible {
+  background: var(--color-bg);
+  border-color: var(--color-border-subtle);
+}
+
+.result-panel__menu-item[aria-disabled='true'],
+.result-panel__menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .result-panel__toast {
@@ -175,13 +247,15 @@
 
 .result-panel__action-button {
   font-size: 12px;
-  padding: 6px 12px;
+  padding: 5px 10px; /* 微收紧以减少拥挤 */
   border: none;
   border-radius: var(--radius-lg);
   cursor: pointer;
   color: #fff;
   box-shadow: var(--shadow-lg);
   transition: transform var(--dur-medium) var(--ease-standard), box-shadow var(--dur-medium) var(--ease-standard), filter var(--dur-medium) var(--ease-standard), opacity var(--dur-medium) var(--ease-standard);
+  flex: 0 0 auto; /* 每个按钮固定尺寸，避免挤压换行 */
+  white-space: nowrap; /* 按钮内文字不换行 */
 }
 
 .result-panel__action-button--primary {
@@ -218,7 +292,7 @@
   top: 0;
   left: 0;
   width: 100%;
-  padding-bottom: var(--space-3); /* 唯一的项间距（可按需调大）*/
+  padding-bottom: var(--space-4); /* 稍增项间距，缓解拥挤 */
   /* 渲染隔离，降低亚像素/重绘影响 */
   contain: layout paint;
 }

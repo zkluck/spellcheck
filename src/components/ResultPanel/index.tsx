@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import classnames from 'classnames/bind';
 import { ErrorItem } from '@/types/error';
@@ -9,6 +10,9 @@ import styles from './index.module.scss';
 const cn = classnames.bind(styles);
 
 const PREFS_KEY = 'spellcheck.resultPanel.prefs';
+
+// 平台判断：用于快捷键提示与组合键判定
+const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
 interface ResultPanelProps {
   errors: ErrorItem[];
@@ -41,6 +45,11 @@ function ResultPanel({
   const [toastMsg, setToastMsg] = useState<string>('');
   const toastTimerRef = useRef<number | null>(null);
   const [showHotkeys, setShowHotkeys] = useState(false);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
+  const [morePos, setMorePos] = useState<{ top: number; left: number; width: number; height: number; right: number } | null>(null);
 
   // 筛选与排序状态
   const [filterSource, setFilterSource] = useState<'all' | 'basic' | 'fluent'>('all');
@@ -166,6 +175,81 @@ function ResultPanel({
       }
     };
   }, []);
+
+  // 监听点击外部与 ESC 关闭“更多”菜单
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!isMoreOpen) return;
+      const target = e.target as Node;
+      const inMore = moreRef.current?.contains(target) ?? false;
+      const inMenu = moreMenuRef.current?.contains(target as Node) ?? false;
+      if (!inMore && !inMenu) {
+        setIsMoreOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [isMoreOpen]);
+
+  // 计算并更新“更多”菜单视口坐标（使用 fixed 定位，避免任何裁剪）
+  const updateMorePos = useCallback(() => {
+    const btn = moreButtonRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    setMorePos({ top: r.top, left: r.left, right: r.right, width: r.width, height: r.height });
+  }, []);
+
+  useEffect(() => {
+    if (!isMoreOpen) return;
+    updateMorePos();
+    const onWin = () => updateMorePos();
+    window.addEventListener('scroll', onWin, true); // 捕获任意滚动容器
+    window.addEventListener('resize', onWin);
+    return () => {
+      window.removeEventListener('scroll', onWin, true);
+      window.removeEventListener('resize', onWin);
+    };
+  }, [isMoreOpen, updateMorePos]);
+
+  // 打开菜单后自动聚焦首个菜单项
+  useEffect(() => {
+    if (isMoreOpen) {
+      const t = window.setTimeout(() => {
+        const first = moreMenuRef.current?.querySelector('button');
+        (first as HTMLButtonElement | null)?.focus?.();
+      }, 0);
+      return () => window.clearTimeout(t);
+    }
+  }, [isMoreOpen]);
+
+  // 全局撤回快捷键：Win/Linux 使用 Ctrl+Alt+Z，macOS 使用 ⌘+⌥+Z
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!canUndo) return;
+      // 不干扰输入框/编辑器等可编辑区域
+      const el = e.target as HTMLElement | null;
+      if (el && (el.closest('input, textarea, select, [contenteditable]'))) return;
+      // 菜单打开时不触发
+      if (isMoreOpen) return;
+      const k = e.key?.toLowerCase();
+      const match = (isMac && e.metaKey && e.altKey && k === 'z') || (!isMac && e.ctrlKey && e.altKey && k === 'z');
+      if (match) {
+        e.preventDefault();
+        e.stopPropagation();
+        try { onUndo(); } catch {}
+        showToast('已撤回修改');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canUndo, isMoreOpen, onUndo, showToast]);
 
   // 键盘导航：↑/↓ 切换，Enter 修正，Delete/Backspace 忽略
   const handleKeyDown = useCallback((e: any) => {
@@ -550,43 +634,84 @@ function ResultPanel({
       <div className={cn('result-panel__header')}>
         <h3 className={cn('result-panel__title')}>检测结果 ({viewErrors.length})</h3>
         <div className={cn('result-panel__actions')}>
-          <button
-            className={cn('result-panel__action-button', 'result-panel__action-button--secondary')}
-            aria-expanded={showHotkeys}
-            aria-controls="hotkeys-panel"
-            onClick={() => setShowHotkeys((v) => !v)}
-            title="查看键盘快捷键"
-          >
-            快捷键
-          </button>
-          <button
-            className={cn('result-panel__action-button', 'result-panel__action-button--secondary')}
-            onClick={handleExportJSON}
-            title="导出为 JSON 文件"
-          >
-            导出JSON
-          </button>
-          <button
-            className={cn('result-panel__action-button', 'result-panel__action-button--secondary')}
-            onClick={handleExportCSV}
-            title="导出为 CSV 文件"
-          >
-            导出CSV
-          </button>
-          <button
-            className={cn('result-panel__action-button', 'result-panel__action-button--secondary')}
-            onClick={handleCopyReport}
-            title="复制当前结果报告到剪贴板"
-          >
-            复制报告
-          </button>
-          <button
-            className={cn('result-panel__action-button', 'result-panel__action-button--secondary')}
-            onClick={onUndo}
-            disabled={!canUndo}
-          >
-            撤回修改
-          </button>
+          <div className={cn('result-panel__more')} ref={moreRef}>
+            <button
+              className={cn('result-panel__action-button', 'result-panel__action-button--secondary', 'result-panel__more-button')}
+              aria-haspopup="menu"
+              aria-expanded={isMoreOpen}
+              aria-controls="resultpanel-more-menu"
+              onClick={() => setIsMoreOpen((v) => !v)}
+              title="更多操作"
+              type="button"
+              ref={moreButtonRef}
+            >
+              更多
+            </button>
+            {isMoreOpen && morePos && createPortal(
+              (
+                <div
+                  id="resultpanel-more-menu"
+                  className={cn('result-panel__menu')}
+                  role="menu"
+                  aria-label="更多操作"
+                  ref={moreMenuRef}
+                  style={{
+                    position: 'fixed',
+                    top: Math.min(morePos.top + morePos.height + 6, window.innerHeight - 8),
+                    left: Math.max(8, Math.min(morePos.right - 240, window.innerWidth - 240 - 8)),
+                    maxWidth: 280,
+                  }}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={cn('result-panel__menu-item')}
+                    onClick={() => { setShowHotkeys((v) => !v); setIsMoreOpen(false); }}
+                    aria-controls="hotkeys-panel"
+                  >
+                    快捷键
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={cn('result-panel__menu-item')}
+                    onClick={() => { handleExportJSON(); setIsMoreOpen(false); }}
+                  >
+                    导出 JSON
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={cn('result-panel__menu-item')}
+                    onClick={() => { handleExportCSV(); setIsMoreOpen(false); }}
+                  >
+                    导出 CSV
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={cn('result-panel__menu-item')}
+                    onClick={() => { handleCopyReport(); setIsMoreOpen(false); }}
+                  >
+                    复制报告
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={cn('result-panel__menu-item')}
+                    onClick={() => { onUndo(); setIsMoreOpen(false); }}
+                    disabled={!canUndo}
+                    aria-disabled={!canUndo}
+                    aria-keyshortcuts={isMac ? 'Meta+Alt+Z' : 'Control+Alt+Z'}
+                    title={`撤回修改（${isMac ? '⌘+⌥+Z' : 'Ctrl+Alt+Z'}）`}
+                  >
+                    撤回修改
+                  </button>
+                </div>
+              ),
+              document.body
+            )}
+          </div>
           <button
             className={cn('result-panel__action-button', 'result-panel__action-button--primary')}
             onClick={onApplyAll}
@@ -636,6 +761,9 @@ function ResultPanel({
             <li><kbd>↑</kbd>/<kbd>↓</kbd> 切换上一条/下一条</li>
             <li><kbd>Enter</kbd> 应用修正</li>
             <li><kbd>Delete</kbd>/<kbd>Backspace</kbd> 忽略</li>
+            <li>
+              <kbd>{isMac ? '⌘' : 'Ctrl'}</kbd>+<kbd>Alt</kbd>+<kbd>Z</kbd> 撤回修改
+            </li>
           </ul>
         </div>
       )}

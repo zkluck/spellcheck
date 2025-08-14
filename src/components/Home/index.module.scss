@@ -69,7 +69,7 @@
   display: grid;
   position: relative; /* 建立明确包含块，保证子项 z-index 对比可控 */
   /* 固定右侧合理宽度区间，避免结果过多时挤占编辑器；避免横向溢出 */
-  grid-template-columns: minmax(520px, 1fr) clamp(360px, 32vw, 520px);
+  grid-template-columns: minmax(520px, 1fr) clamp(380px, 36vw, 600px);
   grid-template-rows: minmax(0, 1fr); /* 关键修复：定义行高以约束其子项 */
   align-items: stretch; /* 保证两列高度一致，避免堆叠错觉 */
   gap: 22px;
@@ -121,7 +121,7 @@
 /* 中等屏宽下，进一步收缩右侧，避免出现横向裁剪导致“右侧挡住左侧”错觉 */
 @media (max-width: 1280px) and (min-width: 1025px) {
   .home__layout {
-    grid-template-columns: 1fr clamp(300px, 36vw, 440px);
+    grid-template-columns: 1fr clamp(320px, 38vw, 480px);
     gap: 18px;
   }
 }
