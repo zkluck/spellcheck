@@ -1,7 +1,6 @@
 import { AgentResponse } from '@/types/agent';
 import { ErrorItem } from '@/types/error';
-import { BasicErrorAgent } from '@/lib/langchain/agents/basic/BasicErrorAgent';
-import { FluentAgent } from '@/lib/langchain/agents/fluent/FluentAgent';
+import { BasicErrorAgent, BasicErrorAgentFluencyMixin } from '@/lib/langchain/agents/basic/BasicErrorAgent';
 import { mergeErrors } from '@/lib/langchain/merge';
 import { logger } from '@/lib/logger';
 import { CoordinatorAgentInputSchema } from '@/types/schemas';
@@ -34,12 +33,10 @@ type StreamCallback = (chunk: { agent: string; response: AgentResponse }) => voi
  */
 export class CoordinatorAgent {
   private basicErrorAgent: BasicErrorAgent;
-  private fluentAgent: FluentAgent;
   private reviewerAgent: ReviewerAgent;
 
   constructor() {
     this.basicErrorAgent = new BasicErrorAgent();
-    this.fluentAgent = new FluentAgent();
     this.reviewerAgent = new ReviewerAgent();
   }
 
@@ -60,8 +57,8 @@ export class CoordinatorAgent {
     // 顺序执行：
     // 1) 运行 Basic，并按合并规则得到可应用的基础错误；
     // 2) 基于这些错误生成“临时修复文本”；
-    // 3) 在修复文本上运行 Fluent；
-    // 4) 将 Fluent 的索引映射回原文。
+    // 3) 在修复文本上运行 Fluency；
+    // 4) 将 Fluency 的索引映射回原文。
 
     const allResults: AgentResponse[] = [];
     const sourceById = new Map<string, 'basic' | 'fluent'>();
@@ -88,19 +85,15 @@ export class CoordinatorAgent {
         : undefined;
       return { count: list.length, types, ...(examples ? { examples } : {}) };
     }
-    // 简化：使用 pipeline 控制顺序与次数
-    const pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> = (config.langchain.workflow as any).pipeline ?? [
+    // 简化：使用 pipeline 控制顺序与次数（已去除 fluent 节点）
+    const pipeline: Array<{ agent: 'basic' | 'reviewer'; runs: number }> = (config.langchain.workflow as any).pipeline ?? [
       { agent: 'basic', runs: 1 },
-      { agent: 'fluent', runs: 1 },
       { agent: 'reviewer', runs: 1 },
     ];
 
     // 配置一致性提示（不强制报错，仅记录）
     try {
       const pipelineAgents = pipeline.map(p => p.agent);
-      if (!pipelineAgents.includes('fluent') && enabledTypes.includes('fluency')) {
-        logger.info('coordinator.consistency', { note: 'fluency_enabled_but_pipeline_no_fluent' });
-      }
       if (!pipelineAgents.includes('basic') && enabledTypes.some(t => ['spelling', 'punctuation', 'grammar'].includes(t))) {
         logger.info('coordinator.consistency', { note: 'basic_enabled_but_pipeline_no_basic' });
       }
@@ -108,8 +101,6 @@ export class CoordinatorAgent {
 
     // 状态
     let basicResultsAll: ErrorItem[] = [];
-    let fluentResultsAll: ErrorItem[] = [];
-    let fluentRawResultsAll: ErrorItem[] = [];
     let patchedText = text;
     let mapPatchedToOrig: IndexMapFn | null = null;
 
@@ -158,57 +149,6 @@ export class CoordinatorAgent {
             logger.warn('agent.failed', { reqId: context?.reqId, agent: 'basic', reason: (e as Error)?.message });
           }
         }
-      } else if (step.agent === 'fluent') {
-        if (!enabledTypes.includes('fluency')) continue;
-        recomputePatched();
-        for (let i = 0; i < runs; i++) {
-          try {
-            const fluentRun = i + 1;
-            const fluentInputText = patchedText;
-            const prevFluentIssuesJson = fluentRawResultsAll.length > 0 ? JSON.stringify(fluentRawResultsAll) : '[]';
-            let prevFluentPatchedText = fluentInputText;
-            if (fluentRawResultsAll.length > 0) {
-              const appliedPrevFluent = mergeErrors(fluentInputText, [fluentRawResultsAll]);
-              const appliedNonOverlapPrevFluent = appliedPrevFluent.filter((e) => typeof e.suggestion === 'string' && e.suggestion.length >= 0);
-              const { output: patchedGuidance } = applyEditsAndBuildMap(fluentInputText, appliedNonOverlapPrevFluent);
-              prevFluentPatchedText = patchedGuidance;
-            }
-            const fluentInput: AgentInputWithPrevious = {
-              text: fluentInputText,
-              previous: { issuesJson: prevFluentIssuesJson, patchedText: prevFluentPatchedText, runIndex: fluentRun },
-            };
-            const fluentRes = await this.fluentAgent.call(fluentInput, signal);
-            const mappedFluent: ErrorItem[] = [];
-            const rawFluent: ErrorItem[] = [];
-            if (fluentRes.result && fluentRes.result.length > 0) {
-              for (const e of fluentRes.result) {
-                rawFluent.push(e as ErrorItem);
-                if (!mapPatchedToOrig) {
-                  mappedFluent.push({ ...e, metadata: { ...(e.metadata ?? {}), source: 'fluent' } });
-                  continue;
-                }
-                const fn: IndexMapFn = mapPatchedToOrig;
-                const ns = fn(e.start);
-                const ne = fn(e.end);
-                if (Number.isFinite(ns) && Number.isFinite(ne) && ns >= 0 && ne > ns && ne <= text.length) {
-                  mappedFluent.push({ ...e, start: ns, end: ne, text: text.slice(ns, ne), metadata: { ...(e.metadata ?? {}), source: 'fluent' } });
-                }
-              }
-            }
-            const normalizedFluent: AgentResponse = { ...fluentRes, result: mappedFluent };
-            if (streamCallback) streamCallback({ agent: 'fluent', response: normalizedFluent });
-            allResults.push(normalizedFluent);
-            for (const it of normalizedFluent.result ?? []) {
-              sourceById.set(it.id, 'fluent');
-              fluentResultsAll.push(it as ErrorItem);
-            }
-            if (rawFluent.length > 0) fluentRawResultsAll.push(...rawFluent);
-            logger.info('agent.fluent.run.summary', { reqId: context?.reqId, run: fluentRun, ...summarizeItems(normalizedFluent.result) });
-            if (fluentRes.error) logger.warn('agent.fluent.run.error', { reqId: context?.reqId, run: fluentRun, error: fluentRes.error });
-          } catch (e) {
-            logger.warn('agent.failed', { reqId: context?.reqId, agent: 'fluent', reason: (e as Error)?.message });
-          }
-        }
       } else if (step.agent === 'reviewer') {
         for (let i = 0; i < runs; i++) {
           try {
@@ -255,6 +195,47 @@ export class CoordinatorAgent {
             logger.warn('agent.failed', { reqId: context?.reqId, agent: 'reviewer', reason: (e as Error)?.message });
           }
         }
+      }
+    }
+
+    // Basic 阶段完成后，如启用 fluency，则运行一次流畅性检测（合并到 Basic Agent 内部实现）
+    if (enabledTypes.includes('fluency')) {
+      recomputePatched();
+      try {
+        const fluentRun = 1;
+        const fluentInputText = patchedText;
+        const prevFluentIssuesJson = '[]';
+        const prevFluentPatchedText = fluentInputText;
+        const fluentInput: AgentInputWithPrevious = {
+          text: fluentInputText,
+          previous: { issuesJson: prevFluentIssuesJson, patchedText: prevFluentPatchedText, runIndex: fluentRun },
+        };
+        const fluentRes = await BasicErrorAgentFluencyMixin.callFluency(this.basicErrorAgent, fluentInput, signal);
+        const mappedFluent: ErrorItem[] = [];
+        if (fluentRes.result && fluentRes.result.length > 0) {
+          for (const e of fluentRes.result) {
+            if (!mapPatchedToOrig) {
+              mappedFluent.push({ ...e, metadata: { ...(e.metadata ?? {}), source: 'fluent' } });
+              continue;
+            }
+            const fn: IndexMapFn = mapPatchedToOrig;
+            const ns = fn(e.start);
+            const ne = fn(e.end);
+            if (Number.isFinite(ns) && Number.isFinite(ne) && ns >= 0 && ne > ns && ne <= text.length) {
+              mappedFluent.push({ ...e, start: ns, end: ne, text: text.slice(ns, ne), metadata: { ...(e.metadata ?? {}), source: 'fluent' } });
+            }
+          }
+        }
+        const normalizedFluent: AgentResponse = { ...fluentRes, result: mappedFluent };
+        if (streamCallback) streamCallback({ agent: 'fluent', response: normalizedFluent });
+        allResults.push(normalizedFluent);
+        for (const it of normalizedFluent.result ?? []) {
+          sourceById.set(it.id, 'fluent');
+        }
+        logger.info('agent.fluent.run.summary', { reqId: context?.reqId, run: fluentRun, ...summarizeItems(normalizedFluent.result) });
+        if (fluentRes.error) logger.warn('agent.fluent.run.error', { reqId: context?.reqId, run: fluentRun, error: fluentRes.error });
+      } catch (e) {
+        logger.warn('agent.failed', { reqId: context?.reqId, agent: 'fluent', reason: (e as Error)?.message });
       }
     }
 

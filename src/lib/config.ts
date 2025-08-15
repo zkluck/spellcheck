@@ -47,14 +47,14 @@ export const config = {
     analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 60000),
     /**
      * 工作流配置：仅保留可读性强的 pipeline 字符串，自由配置顺序与次数。
-     * 例如：WORKFLOW_PIPELINE="basic*2,reviewer,fluent*1"
-     * 可用 agent：basic | fluent | reviewer；省略 *n 等同 *1。
+     * 例如：WORKFLOW_PIPELINE="basic*2,reviewer*1"
+     * 可用 agent：basic | reviewer；省略 *n 等同 *1。
      */
-    workflow: ((): { pipeline: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> } => {
-      const raw = getEnv('WORKFLOW_PIPELINE', 'basic*1,fluent*1,reviewer*1');
+    workflow: ((): { pipeline: Array<{ agent: 'basic' | 'reviewer'; runs: number }> } => {
+      const raw = getEnv('WORKFLOW_PIPELINE', 'basic*1,reviewer*1');
       const parsed = parsePipelineEnv(raw);
       const PipelineEntrySchema = z.object({
-        agent: z.enum(['basic', 'fluent', 'reviewer']),
+        agent: z.enum(['basic', 'reviewer']),
         runs: z.number().int().positive(),
       });
       const PipelineSchema = z.array(PipelineEntrySchema).min(1);
@@ -64,7 +64,6 @@ export const config = {
       return {
         pipeline: [
           { agent: 'basic', runs: 1 },
-          { agent: 'fluent', runs: 1 },
           { agent: 'reviewer', runs: 1 },
         ],
       };
@@ -105,28 +104,32 @@ export const config = {
          * 默认 false；环境变量：BASIC_ALLOW_LOCATE_FALLBACK
          */
         allowLocateFallback: getEnvBool('BASIC_ALLOW_LOCATE_FALLBACK', false),
-      },
-      fluent: {
         /**
-         * 置信度阈值（仅保留 >= 阈值），默认 0.9
-         * 环境变量：FLUENT_MIN_CONFIDENCE
+         * 合并 Fluency（流畅性）检测的独立阈值配置
+         * 为兼容已有环境变量，仍读取 FLUENT_*，但不再单独暴露 fluent agent 配置段。
          */
-        minConfidence: getEnvNumber('FLUENT_MIN_CONFIDENCE', 0.9),
-        /**
-         * 最大输出数量上限（返回前强制裁剪），默认 200
-         * 环境变量：FLUENT_MAX_OUTPUT
-         */
-        maxOutput: getEnvNumber('FLUENT_MAX_OUTPUT', 200),
-        /**
-         * 是否强制仅保留索引“严格匹配”的项（metadata.locate === 'exact'）
-         * 默认 true；环境变量：FLUENT_REQUIRE_EXACT_INDEX
-         */
-        requireExactIndex: getEnvBool('FLUENT_REQUIRE_EXACT_INDEX', true),
-        /**
-         * 是否允许在 toErrorItems() 中使用基于“唯一文本”的回退定位
-         * 默认 false；环境变量：FLUENT_ALLOW_LOCATE_FALLBACK
-         */
-        allowLocateFallback: getEnvBool('FLUENT_ALLOW_LOCATE_FALLBACK', false),
+        fluency: {
+          /**
+           * 置信度阈值（仅保留 >= 阈值），默认 0.9
+           * 环境变量：FLUENT_MIN_CONFIDENCE
+           */
+          minConfidence: getEnvNumber('FLUENT_MIN_CONFIDENCE', 0.9),
+          /**
+           * 最大输出数量上限（返回前强制裁剪），默认 200
+           * 环境变量：FLUENT_MAX_OUTPUT
+           */
+          maxOutput: getEnvNumber('FLUENT_MAX_OUTPUT', 200),
+          /**
+           * 是否强制仅保留索引“严格匹配”的项（metadata.locate === 'exact'）
+           * 默认 true；环境变量：FLUENT_REQUIRE_EXACT_INDEX
+           */
+          requireExactIndex: getEnvBool('FLUENT_REQUIRE_EXACT_INDEX', true),
+          /**
+           * 是否允许在 toErrorItems() 中使用基于“唯一文本”的回退定位
+           * 默认 false；环境变量：FLUENT_ALLOW_LOCATE_FALLBACK
+           */
+          allowLocateFallback: getEnvBool('FLUENT_ALLOW_LOCATE_FALLBACK', false),
+        },
       },
       reviewer: {
         /**
@@ -168,28 +171,27 @@ export const config = {
 
 /**
  * 解析 WORKFLOW_PIPELINE 环境变量
- * 语法示例："basic*2, reviewer, fluent*1"
+ * 语法示例："basic*2, reviewer*1"
  */
 function parsePipelineEnv(
   raw: string
-): Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> {
+): Array<{ agent: 'basic' | 'reviewer'; runs: number }> {
   const items = String(raw || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const out: Array<{ agent: 'basic' | 'fluent' | 'reviewer'; runs: number }> =
+  const out: Array<{ agent: 'basic' | 'reviewer'; runs: number }> =
     [];
   for (const it of items) {
-    const m = it.match(/^(basic|fluent|reviewer)(?:\*(\d+))?$/i);
+    const m = it.match(/^(basic|reviewer)(?:\*(\d+))?$/i);
     if (!m) continue;
-    const agent = m[1].toLowerCase() as 'basic' | 'fluent' | 'reviewer';
+    const agent = m[1].toLowerCase() as 'basic' | 'reviewer';
     const runs = Math.max(1, parseInt(m[2] ?? '1', 10) || 1);
     out.push({ agent, runs });
   }
   if (out.length === 0)
     return [
       { agent: 'basic', runs: 1 },
-      { agent: 'fluent', runs: 1 },
       { agent: 'reviewer', runs: 1 },
     ];
   return out;

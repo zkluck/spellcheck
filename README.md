@@ -1,16 +1,18 @@
 # AI 中文文本检测系统
 
-这是一个基于 Next.js 和 LangChain 双智能体架构构建的 AI 中文文本检测系统，可以帮助用户检测并修正文本中的语法、拼写、标点和流畅（表达优化）问题。
+这是一个基于 Next.js 和 LangChain 多阶段（Basic（含 Fluency）+ Reviewer）架构构建的 AI 中文文本检测系统，可以帮助用户检测并修正文本中的语法、拼写、标点和流畅（表达优化）问题。
 
 ## 功能特点
 
-- **多智能体检测**：系统集成了多智能体（Basic、Fluent、Reviewer），分别负责检测不同类型的文本问题（是否执行 Reviewer 由后端 `WORKFLOW_PIPELINE` 决定）
+- **多阶段检测**：系统按阶段执行（Basic、Fluency〈并入 Basic〉、Reviewer），分别负责检测不同类型的文本问题（是否执行 Reviewer 由后端 `WORKFLOW_PIPELINE` 决定；Fluency 为 Basic 的内置子流程，不出现在 pipeline 中）
 
   - 基础错误智能体（BasicErrorAgent）：检测拼写、标点、基础语法等客观错误
-  - 流畅智能体（FluentAgent）：检测语义通顺、冗余重复与表达优化问题
-  - 顺序编排（CoordinatorAgent）：先运行 Basic，对原文做临时修复并构建索引映射，再在修复文本上运行 Fluent，将 Fluent 结果安全映射回原文索引；两类错误合并后可交由 Reviewer 审阅。
+  - 流畅阶段（Fluency，Basic 内置）：检测语义通顺、冗余重复与表达优化问题
+  - 顺序编排（CoordinatorAgent）：先运行 Basic 并对原文做临时修复与索引映射，再在修复文本上执行 Basic 内置的 Fluency 阶段，将 Fluency 结果安全映射回原文索引；合并后可交由 Reviewer 审阅。
 
-- **结果保全与来源标记**：同时保留 Basic 与 Fluent 的全部错误候选，供用户选择；每条错误都带有 `metadata.source`（`basic`/`fluent`）。
+- **结果保全与来源标记**：同时保留 Basic 与 Fluency 的全部错误候选，供用户选择；每条错误都带有 `metadata.source`（`basic`/`fluent`）。
+
+- 兼容说明：`fluent` 仅为来源标签（为保证日志与 SSE 兼容而保留），并非独立 Agent；Fluency 为 Basic 的内置子阶段。
 
 - 审阅阶段由后端工作流配置控制：通过环境变量 `WORKFLOW_PIPELINE` 决定是否执行 Reviewer。前端不提供开关。
 
@@ -26,7 +28,7 @@
 
 - **前端**：Next.js 14 + React 18 + TypeScript 5 + SCSS（BEM 规范，无 & 嵌套）
 - **后端**：Next.js App Router API Routes（Node 环境）
-- **AI**：LangChain 0.1.x 多智能体串联（Basic → Fluent → Reviewer，是否执行由 `WORKFLOW_PIPELINE` 决定），统一 LLM 保护调用（`guardLLMInvoke`），令牌桶限流（`llm-guard.ts`）
+- **AI**：LangChain 0.1.x 多阶段串联（Basic〈含 Fluency 子阶段〉→ Reviewer，是否执行 Reviewer 由 `WORKFLOW_PIPELINE` 决定），统一 LLM 保护调用（`guardLLMInvoke`），令牌桶限流（`llm-guard.ts`）
 - **运行时校验**：Zod（API 入参与出参严格校验）
 - **日志**：结构化 logger（`src/lib/logger.ts`）
 - **配置**：统一配置模块（`src/lib/config.ts`，支持 .env）
@@ -90,7 +92,7 @@ E2E_ENABLE=0
   - `ANALYZE_TIMEOUT_MS`：`analyzeText` 超时时间（毫秒）。
   - `E2E_ENABLE`：启用 E2E 场景模拟的后端分支，仅供本地/CI。
   - `MERGE_CONFIDENCE_FIRST`：合并时是否优先高置信度（`true|false`，默认 `true`）。对应 `config.langchain.merge.confidenceFirst`。
-  - `WORKFLOW_PIPELINE`：多智能体顺序与次数配置，语法示例：`"basic*2, reviewer, fluent*1"`；可用 agent：`basic | fluent | reviewer`；省略 `*n` 等同 `*1`。默认：`basic*1,fluent*1,reviewer*1`。
+  - `WORKFLOW_PIPELINE`：多智能体顺序与次数配置（Fluency 已并入 Basic，不在 pipeline 中）。语法示例：`"basic*2, reviewer*1"`；可用 agent：`basic | reviewer`；省略 `*n` 等同 `*1`。默认：`basic*1,reviewer*1`。
   - 日志相关（`src/lib/logger.ts`）：`LOG_TO_FILE`（默认 Node 环境为 `true`）、`LOG_DIR`（默认 `logs`）、`LOG_FILE_PREFIX`（默认 `app`）、`LOG_FILE_LEVEL`（`debug|info|warn|error`，默认 `info`）。
   - 日志负载开关（`src/lib/config.ts`）：`LOG_ENABLE_PAYLOAD`（是否输出示例内容，如错误样例与建议；默认 `false`，生产建议保持关闭）。
 
@@ -208,7 +210,7 @@ data: {"type":"error","code":"aborted|internal","message":"...","requestId":"...
 - 错误项 Schema：`src/types/error.ts` 导出 `ErrorItemSchema` 与 `ErrorItem` 类型。
 - 复用范围：
   - API 路由 `src/app/api/check/route.ts` 与 `CoordinatorAgent` 统一复用公共 Schema。
-  - `BasicErrorAgent.ts`、`FluentAgent.ts` 输入复用 `AgentInputWithPreviousSchema`；
+  - `BasicErrorAgent.ts`（含 Fluency 子阶段）输入复用 `AgentInputWithPreviousSchema`；
   - `ReviewerAgent.ts` 输入/裁决复用 `ReviewerInputSchema` / `ReviewDecisionSchema`；
   - `CoordinatorAgent.ts` 构造传给各 Agent 的参数均为强类型（无 `any`），传 Reviewer 的 candidates 结构与共享类型保持一致。
 - 前端/共享类型：`src/types/agent.ts` 的 `AnalyzeOptions` 直接引用 `EnabledType`，与 Zod 枚举保持一致。
@@ -311,8 +313,7 @@ spellcheck/
 │   │       │   └── llm-output.ts  # LLM 输出解析与健壮性处理
 │   │       └── agents/         # 多智能体实现
 │   │           ├── coordinator/CoordinatorAgent.ts  # 顺序编排与索引映射
-│   │           ├── basic/BasicErrorAgent.ts         # 基础错误检测（guardLLMInvoke）
-│   │           ├── fluent/FluentAgent.ts            # 流畅/表达优化检测
+│   │           ├── basic/BasicErrorAgent.ts         # 基础错误检测 + Fluency 子阶段
 │   │           └── reviewer/ReviewerAgent.ts        # 审阅与最终裁决（由 WORKFLOW_PIPELINE 控制，前端无开关）
 │   └── types/                  # 类型定义（ErrorItem/AnalyzeOptions 等）
 ├── tests/
@@ -334,15 +335,17 @@ spellcheck/
 ### 添加新的检测智能体
 
 1. 在`src/lib/langchain/agents`目录下创建新的智能体实现
-2. 在 `src/lib/langchain/agents/coordinator/CoordinatorAgent.ts` 中接入新智能体（根据 `enabledTypes` 决定是否调用）
+2. 在 `src/lib/langchain/agents/coordinator/CoordinatorAgent.ts` 中接入新智能体（当前 pipeline 仅解析 `basic|reviewer`，新增类型需同步扩展解析与协调逻辑）
+
 3. 在前端界面中添加对应的选项和显示逻辑
 
 ### 架构与执行流程
 
-1. BasicErrorAgent 在原文上检测，返回基础错误候选（spelling/punctuation/grammar）。
-2. 将基础候选进行去重与冲突解决（`mergeErrors()`），应用非重叠修复以生成“临时修复文本”，并构建“修复文本索引 → 原文索引”的映射。
-3. FluentAgent 在临时修复文本上检测流畅与表达问题，产出的索引通过映射回投至原文坐标系。
-4. 合并 Basic 与 Fluent 的候选，均带 `metadata.source` 标记；若后端工作流 `WORKFLOW_PIPELINE` 包含 reviewer 节点，则交由 Reviewer 审阅（accept/reject/modify），否则直接合并返回。
+ 1. BasicErrorAgent 在原文上检测，返回基础错误候选（spelling/punctuation/grammar）。
+ 2. 将基础候选进行去重与冲突解决（`mergeErrors()`），应用非重叠修复以生成“临时修复文本”，并构建“修复文本索引 → 原文索引”的映射。
+ 3. 在临时修复文本上执行 Basic 内置的 Fluency 子阶段，产出的索引通过映射回投至原文坐标系。
+ 4. 合并 Basic 与 Fluency 的候选（`metadata.source` 仍区分为 `basic|fluent`），若后端工作流 `WORKFLOW_PIPELINE` 包含 reviewer 节点，则交由 Reviewer 审阅（accept/reject/modify），否则直接合并返回。
+
 5. 最终使用 `mergeErrors()` 产出稳定、无冲突的结果列表。
 
 ### 智能体 Prompt 规范（关键约束）
@@ -353,33 +356,41 @@ spellcheck/
   - spelling：错别字、同音/近形误用。
   - punctuation：全角/半角混用、成对标点不匹配、重复或多余标点、类型错误。
   - grammar：明显量词错误、主谓搭配明显不当、成分残缺/重复（客观可判定）。
+
 - **排除**：风格/语气/主观优化、需外部知识推断的改写、纯“缺失标点”的插入类修改。
+
 - **输出**（仅 JSON 数组）：对象字段
   - `type`: `"spelling" | "punctuation" | "grammar"`
   - `text`, `start`, `end`, `suggestion`, `description`, `quote`（与 text 一致）, `confidence?`(0~1)
+
 - **索引/编辑规则**：
   - UTF-16 计数；`original.slice(start, end) === text`；`end > start`。
   - 禁止空区间“纯插入”；如需插入，使用相邻的最小可替换片段实现等价插入。
   - 最小编辑；不做大段重写；避免重叠与重复；数量 ≤200。
 
-#### FluentAgent（流畅/表达）
+#### Fluency（Basic 内置子阶段，流畅/表达）
 
 - **检测范围**：语义通顺、语序更顺、常见搭配/用词更地道、重复与冗余精简、表达更清晰（不改变原意、最小编辑）。
+
 - **排除**：所有基础错误（spelling/punctuation/grammar）、需要上下文推断的改写、风格化/主观改写。
+
 - **输出**（仅 JSON 数组）：对象字段
   - `type: "fluency"`
   - `text`, `start`, `end`, `suggestion`（删除用空字符串）、`description`, `quote`（与 text 一致）, `confidence?`
+
 - **索引/编辑规则**：与 Basic 相同；尤其禁止空区间“纯插入”，需以最小替换片段等价实现插入；去重与不重叠。
 
 #### ReviewerAgent（审阅裁决）
 
-- **输入**：Basic/Fluent 合并后的候选（含 `id`）。
+- **输入**：Basic 与 Fluency 合并后的候选（含 `id`）。
+
 - **决策**：对每个候选按 `id` 逐一 `accept | reject | modify`。
   - 不得新增候选；仅在提供的 `id` 集合内裁决。
   - `modify` 必须给出可验证的 `start/end/text/suggestion`（同 UTF-16 校验规则），遵循最小编辑与不重叠；可接受/微调 `fluency`，前提是不改变原意且可读性显著提升。
+
 - **输出**（仅 JSON 数组）：统一 JSON 对象，字段遵循上述索引与最小编辑规则。
 
-以上三者分工清晰：Basic 负责客观基础错误；Fluent 负责不改变原意的表达优化；Reviewer 进行最终一致性与质量裁决。
+以上三者分工清晰：Basic 负责客观基础错误；Fluency 负责不改变原意的表达优化；Reviewer 进行最终一致性与质量裁决。
 
 ### 合并与优先级策略（`src/lib/langchain/merge.ts`）
 
@@ -397,7 +408,7 @@ spellcheck/
 
 - `llm-output.ts`：回退定位不重复插入。
 - `ReviewerAgent`：`modify` 决策索引边界校验。
-- `CoordinatorAgent`：顺序编排与索引映射正确性（Basic 应用后 Fluent 映射回原文）。
+- `CoordinatorAgent`：顺序编排与索引映射正确性（Basic 应用后 Fluency 映射回原文）。
 - `merge.ts`：类型优先级与重叠裁决一致性。
 
 ## 测试与 CI
