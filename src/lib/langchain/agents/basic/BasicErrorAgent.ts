@@ -152,107 +152,53 @@ const FLUENT_EXAMPLES = `
   输出:
   []
 `;
-// BasicErrorAgent 的 Prompt 模板（ChatPromptTemplate）
-const BASIC_ERROR_PROMPT = ChatPromptTemplate.fromMessages([
+// —— 合并后的 Prompt（基础错误 + 流畅性，统一一次性返回） ——
+const COMBINED_PROMPT = ChatPromptTemplate.fromMessages([
   [
     'system',
     `
 <ROLE_AND_GOAL>
-你是一个严谨、专注的中文校对AI，你的唯一任务是检测文本中的基础性、客观性错误。
-- 检测范围: 仅限于拼写 (spelling)、标点 (punctuation) 和基础语法 (grammar)。
-- 核心原则: 绝对客观。严禁进行任何主观的风格美化、语气调整或需要外部知识才能判断的内容改写。宁可漏报，绝不误报。
+你是一个严谨、专注的中文文本审校专家。请在不引入主观风格改写、且不依赖外部知识的前提下，
+检测并返回以下两类问题，统一以一个 JSON 数组返回：
+- 基础错误：拼写 (spelling)、标点 (punctuation)、基础语法 (grammar)；
+- 表达流畅性：fluency（在不改变原意的前提下进行最小替换的可读性/搭配/冗余等优化）。
 </ROLE_AND_GOAL>
 
 <OUTPUT_FORMAT>
-你的唯一输出必须是一个 JSON 数组，即使没有发现错误（此时输出空数组 []）。
-严禁在 JSON 数组前后添加任何说明文字、解释或 Markdown 代码块。
-
-每个 JSON 对象代表一个错误，字段如下（所有字段必填）：
-- "type": 错误类型，必须是 "spelling" | "punctuation" | "grammar" 之一。
-- "text": 从原文中截取的、包含错误的最小文本片段。
-- "start": 错误片段在原文中的起始位置 (UTF-16 索引)。
-- "end": 错误片段在原文中的结束位置 (UTF-16 索引，且 end > start)。
-- "suggestion": 修正后的建议。若为删除，则为空字符串 ""。
-- "explanation": 对错误的简明、客观的解释。
-- "quote": 与 "text" 完全一致。
-- "confidence": 修正建议的置信度 (0.0-1.0)。仅输出高置信度 (>=0.9) 的错误。
-</OUTPUT_FORMAT>
-
-<RULES>
-1. 索引精确: 必须满足 original.slice(start, end) === text，不跨越/虚构上下文。
-2. 最小化编辑: 修正应尽可能小，只包含必要改动。
-3. 禁止“纯插入”: 任何“插入”都需通过“替换”实现，选择与插入点相邻的最小片段，并在 suggestion 中包含新增内容。
-4. 独立且不重叠: 每个错误项独立完整，(start, end) 区间之间不得重叠。
-5. 数量约束: 最多输出 200 项。
-6. 置信度门槛: 仅在把握高 (confidence >= 0.9) 时才输出该项。
-7. 失败回避: 若无法严格保证索引与 text 完全匹配，请不要输出该项。
-</RULES>
-
-<EXAMPLES>
-{examples}
-</EXAMPLES>
-`.trim()
-  ],
-  [
-    'human',
-    `
-请严格按照上述 <OUTPUT_FORMAT> 和 <RULES> 在以下文本中检测基础错误。
-
-<TEXT_TO_ANALYZE>
-{text}
-</TEXT_TO_ANALYZE>
-
-如果提供了上一轮的校对信息，请参考它们来避免重复报告已修正的错误，但所有索引必须基于当前提供的原始文本 {text}。
-- 上一轮问题 (JSON): {prevIssues}
-- 已修复文本 (供参考): {patchedText}
-- 迭代编号: {runIndex}
-`.trim()
-  ],
-]);
-
-// —— Fluency Prompt ——
-const FLUENT_PROMPT = ChatPromptTemplate.fromMessages([
-  [
-    'system',
-    `
-<ROLE_AND_GOAL>
-你是中文“表达流畅性/可读性”优化专家，仅在不改变原意前提下提出最小编辑的替换建议。
-- 范围: 语义通顺、搭配/用词、重复与冗余、更清晰的等价表达。
-- 排除: 拼写/标点/基础语法错误；需要外部知识的改写；主观风格化改写。
-</ROLE_AND_GOAL>
-
-<OUTPUT_FORMAT>
-你的唯一输出必须是一个 JSON 数组，即使没有建议（此时输出空数组 []）。严禁任何额外文字或 Markdown。
-
-每个 JSON 对象字段如下（所有字段必填）：
-- "type": 固定为 "fluency"。
-- "text": 原文中包含问题的最小片段。
-- "start": 片段起始 UTF-16 索引。
-- "end": 片段结束 UTF-16 索引（end > start）。
-- "suggestion": 修正后的更流畅表达；若为删除则为空字符串 ""。
-- "explanation": 简明客观说明，避免主观化。
-- "quote": 与 "text" 完全一致。
-- "confidence": 0.0-1.0 的置信度，仅在把握高时给出。
+你的唯一输出必须是一个 JSON 数组（可为空 []），不得包含说明文字或 Markdown 代码块。
+数组中的每个对象包含以下字段（所有字段必填）：
+- "type": "spelling" | "punctuation" | "grammar" | "fluency" 之一；
+- "text": 从原文中截取的、包含问题的最小片段；
+- "start": 片段在原文中的起始 UTF-16 索引；
+- "end": 片段在原文中的结束 UTF-16 索引（必须 > start）；
+- "suggestion": 修正/替换建议；若为删除则为空字符串 ""；
+- "explanation": 简明、客观的说明；
+- "quote": 与 "text" 完全一致；
+- "confidence": 0.0-1.0 的置信度，仅在把握高时输出该项。
 </OUTPUT_FORMAT>
 
 <RULES>
 1. 索引精确：必须满足 original.slice(start, end) === text。
-2. 最小编辑：仅做必要的最小替换，禁止大段改写。
-3. 禁止纯插入：如需“插入”，通过最小替换实现。
-4. 不重叠：各 (start,end) 区间不得重叠。
-5. 数量约束：最多输出 200 项。
-6. 失败回避：无法保证索引与 text 完全匹配时不要输出。
+2. 最小编辑：仅做必要的最小替换，禁止大段改写与主观润色。
+3. 禁止纯插入：如需“插入”，通过最小替换实现，并在 suggestion 中体现新增内容。
+4. 不重叠：所有 (start,end) 区间之间不得重叠。
+5. 数量上限：最多输出 200 项。
+6. 失败回避：若无法严格保证索引与 text 完全匹配，请不要输出该项。
 </RULES>
 
 <EXAMPLES>
-{examples}
+【基础错误】
+{basicExamples}
+
+【流畅性】
+{fluentExamples}
 </EXAMPLES>
 `.trim()
   ],
   [
     'human',
     `
-请严格按照上述 <OUTPUT_FORMAT> 和 <RULES> 在以下文本中检测流畅性问题。
+请严格按照上述 <OUTPUT_FORMAT> 和 <RULES> 在以下文本中检测问题，并统一返回：
 
 <TEXT_TO_ANALYZE>
 {text}
@@ -278,17 +224,18 @@ export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
     const llm = getLLM();
 
     try {
-      const messages = await BASIC_ERROR_PROMPT.formatMessages({
+      const messages = await COMBINED_PROMPT.formatMessages({
         text: input.text,
         prevIssues: input.previous?.issuesJson ?? '',
         patchedText: input.previous?.patchedText ?? '',
         runIndex: String(input.previous?.runIndex ?? ''),
-        examples: BASIC_ERROR_EXAMPLES,
+        basicExamples: BASIC_ERROR_EXAMPLES,
+        fluentExamples: FLUENT_EXAMPLES,
       } as any);
       const response = await guardLLMInvoke(
         (innerSignal) => llm.invoke(messages as any, { signal: innerSignal } as any),
         {
-          operationName: 'BasicErrorAgent.llm',
+          operationName: 'BasicErrorAgent.combined.llm',
           parentSignal: signal,
           logFields: {
             text: input.text,
@@ -305,40 +252,51 @@ export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
       // 统一解析 LLM 输出
       const rawItems = extractJsonArrayFromContent(response.content);
       
-      // 分别处理不同类型的错误
-      const allErrors: ErrorItem[] = [];
-      
+      // 分类型处理与过滤
+      const basicItems: ErrorItem[] = [];
+      const fluentItems: ErrorItem[] = [];
       for (const rawItem of rawItems) {
         if (rawItem && typeof rawItem === 'object' && 'type' in rawItem) {
-          const type = rawItem.type;
+          const type = (rawItem as any).type;
           if (type === 'spelling' || type === 'punctuation' || type === 'grammar') {
-            const processedErrors = toErrorItems([rawItem], {
+            const processed = toErrorItems([rawItem], {
               enforcedType: type,
               originalText: input.text,
               allowLocateByTextUnique: config.langchain.agents.basic.allowLocateFallback,
             });
-            allErrors.push(...processedErrors);
+            basicItems.push(...processed);
+          } else if (type === 'fluency') {
+            const processed = toErrorItems([rawItem], {
+              enforcedType: 'fluency',
+              originalText: input.text,
+              allowLocateByTextUnique: config.langchain.agents.basic.fluency.allowLocateFallback,
+            });
+            fluentItems.push(...processed);
           }
         }
       }
 
-      // 根据配置决定是否强制仅保留索引精确匹配项
-      const requireExact = config.langchain.agents.basic.requireExactIndex;
-      const indexFiltered = requireExact
-        ? allErrors.filter((e) => (e as any).metadata?.locate === 'exact')
-        : allErrors;
-
-      // 过滤低置信度项（严格执行 >= 配置阈值），从 metadata 中读取置信度
-      const minC = config.langchain.agents.basic.minConfidence;
-      const filteredErrors = indexFiltered.filter((e) => {
+      // 基础错误过滤（精确索引与置信度）
+      const basicExact = config.langchain.agents.basic.requireExactIndex
+        ? basicItems.filter((e) => (e as any).metadata?.locate === 'exact')
+        : basicItems;
+      const basicFiltered = basicExact.filter((e) => {
         const m = (e as any).metadata;
         const c = typeof m?.confidence === 'number' ? m.confidence : (typeof m?.originalLLM?.confidence === 'number' ? m.originalLLM.confidence : undefined);
-        return typeof c === 'number' && c >= minC;
-      });
+        return typeof c === 'number' && c >= config.langchain.agents.basic.minConfidence;
+      }).slice(0, Math.max(0, config.langchain.agents.basic.maxOutput || 0));
 
-      // 返回前强制裁剪最大数量
-      const maxN = config.langchain.agents.basic.maxOutput;
-      const finalErrors = filteredErrors.slice(0, Math.max(0, maxN || 0));
+      // 流畅性过滤（精确索引与置信度）
+      const fluentExact = config.langchain.agents.basic.fluency.requireExactIndex
+        ? fluentItems.filter((e) => (e as any).metadata?.locate === 'exact')
+        : fluentItems;
+      const fluentFiltered = fluentExact.filter((e) => {
+        const m = (e as any).metadata;
+        const c = typeof m?.confidence === 'number' ? m.confidence : (typeof m?.originalLLM?.confidence === 'number' ? m.originalLLM.confidence : undefined);
+        return typeof c === 'number' && c >= config.langchain.agents.basic.fluency.minConfidence;
+      }).slice(0, Math.max(0, config.langchain.agents.basic.fluency.maxOutput || 0));
+
+      const finalErrors = [...basicFiltered, ...fluentFiltered];
 
       const parsedOut = AgentResponseSchema.safeParse({ result: finalErrors, rawOutput });
       if (!parsedOut.success) {
@@ -357,70 +315,3 @@ export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
   }
 }
 
-// —— 扩展：在同一 Agent 中提供流畅性检测 ——
-export interface FluentLike extends AgentInputWithPrevious {}
-
-export interface FluentResponse extends AgentResponse {}
-
-export class BasicErrorAgentFluencyMixin {
-  // 通过静态辅助方法，供 Coordinator 复用（避免额外实例类型）
-  static async callFluency(agent: BasicErrorAgent, input: AgentInputWithPrevious, signal?: AbortSignal): Promise<AgentResponse> {
-    const llm = getLLM();
-    try {
-      const messages = await FLUENT_PROMPT.formatMessages({
-        text: input.text,
-        prevIssues: input.previous?.issuesJson ?? '',
-        patchedText: input.previous?.patchedText ?? '',
-        runIndex: String(input.previous?.runIndex ?? ''),
-        examples: FLUENT_EXAMPLES,
-      } as any);
-      const response = await guardLLMInvoke(
-        (innerSignal) => llm.invoke(messages as any, { signal: innerSignal } as any),
-        {
-          operationName: 'BasicErrorAgent.fluency.llm',
-          parentSignal: signal,
-          logFields: {
-            text: input.text,
-            previous: {
-              issuesJson: input.previous?.issuesJson ?? '',
-              patchedText: input.previous?.patchedText ?? '',
-              runIndex: input.previous?.runIndex,
-            },
-          },
-        }
-      );
-
-      const rawOutput = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-      const rawItems = extractJsonArrayFromContent(response.content);
-      const processed: ErrorItem[] = toErrorItems(rawItems, {
-        enforcedType: 'fluency',
-        originalText: input.text,
-        allowLocateByTextUnique: config.langchain.agents.basic.fluency.allowLocateFallback,
-      });
-
-      const requireExact = config.langchain.agents.basic.fluency.requireExactIndex;
-      const indexFiltered = requireExact ? processed.filter((e) => (e as any).metadata?.locate === 'exact') : processed;
-
-      const minC = config.langchain.agents.basic.fluency.minConfidence;
-      const confidenceFiltered = indexFiltered.filter((e) => {
-        const m = (e as any).metadata;
-        const c = typeof m?.confidence === 'number' ? m.confidence : (typeof m?.originalLLM?.confidence === 'number' ? m.originalLLM.confidence : undefined);
-        return typeof c === 'number' && c >= minC;
-      });
-
-      const maxN = config.langchain.agents.basic.fluency.maxOutput;
-      const finalErrors = confidenceFiltered.slice(0, Math.max(0, maxN || 0));
-
-      const parsedOut = AgentResponseSchema.safeParse({ result: finalErrors, rawOutput });
-      if (!parsedOut.success) {
-        logger.warn('BasicErrorAgent.fluency.output_invalid', { zod: parsedOut.error.flatten?.() ?? String(parsedOut.error) });
-        return { result: [], error: 'BasicErrorAgent.fluency_invalid_output', rawOutput } as AgentResponse;
-      }
-      return parsedOut.data as AgentResponse;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error('BasicErrorAgent.fluency.invoke.error', { error: errorMessage });
-      return { result: [], error: errorMessage };
-    }
-  }
-}

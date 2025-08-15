@@ -1,6 +1,6 @@
 import { AgentResponse } from '@/types/agent';
 import { ErrorItem } from '@/types/error';
-import { BasicErrorAgent, BasicErrorAgentFluencyMixin } from '@/lib/langchain/agents/basic/BasicErrorAgent';
+import { BasicErrorAgent } from '@/lib/langchain/agents/basic/BasicErrorAgent';
 import { mergeErrors } from '@/lib/langchain/merge';
 import { logger } from '@/lib/logger';
 import { CoordinatorAgentInputSchema } from '@/types/schemas';
@@ -54,16 +54,16 @@ export class CoordinatorAgent {
     const { text, options } = parsed.data;
     const enabledTypes = Array.from(new Set(options.enabledTypes));
     
-    // 顺序执行：
-    // 1) 运行 Basic，并按合并规则得到可应用的基础错误；
-    // 2) 基于这些错误生成“临时修复文本”；
-    // 3) 在修复文本上运行 Fluency；
-    // 4) 将 Fluency 的索引映射回原文。
+    // 顺序执行（合并后简化）：
+    // 1) 运行 Basic（已包含基础错误 + 流畅性）；
+    // 2) 基于这些错误生成“临时修复文本”（用于多轮 Basic/Reviewer 参考）；
+    // 3) 可选运行 Reviewer 对候选进行审阅与裁决。
 
     const allResults: AgentResponse[] = [];
-    const sourceById = new Map<string, 'basic' | 'fluent'>();
+    const sourceById = new Map<string, 'basic'>();
 
-    const needsBasicErrors = enabledTypes.some(type => ['spelling', 'punctuation', 'grammar'].includes(type));
+    // 合并后：只要启用了任一类型（spelling/punctuation/grammar/fluency），就需要运行 Basic
+    const needsBasic = enabledTypes.some(type => ['spelling', 'punctuation', 'grammar', 'fluency'].includes(type));
 
     // 简洁摘要：数量、类型分布、前三条示例
     function summarizeItems(items: ErrorItem[] | undefined | null) {
@@ -94,7 +94,7 @@ export class CoordinatorAgent {
     // 配置一致性提示（不强制报错，仅记录）
     try {
       const pipelineAgents = pipeline.map(p => p.agent);
-      if (!pipelineAgents.includes('basic') && enabledTypes.some(t => ['spelling', 'punctuation', 'grammar'].includes(t))) {
+      if (!pipelineAgents.includes('basic') && enabledTypes.some(t => ['spelling', 'punctuation', 'grammar', 'fluency'].includes(t))) {
         logger.info('coordinator.consistency', { note: 'basic_enabled_but_pipeline_no_basic' });
       }
     } catch {}
@@ -120,7 +120,7 @@ export class CoordinatorAgent {
     for (const step of pipeline) {
       const runs = Math.max(0, Number(step?.runs ?? 0));
       if (step.agent === 'basic') {
-        if (!needsBasicErrors) continue;
+        if (!needsBasic) continue;
         for (let i = 0; i < runs; i++) {
           try {
             const basicRun = i + 1;
@@ -136,14 +136,18 @@ export class CoordinatorAgent {
               ...basicRes,
               result: (basicRes.result ?? []).map(it => ({ ...it, metadata: { ...(it.metadata ?? {}), source: 'basic' } } as ErrorItem)),
             };
-            if (streamCallback) streamCallback({ agent: 'basic', response: normalizedBasic });
-            allResults.push(normalizedBasic);
-            for (const it of normalizedBasic.result ?? []) {
+            // 依据 enabledTypes 过滤，仅保留启用的类型
+            const allowed = new Set(enabledTypes);
+            const filteredResult = (normalizedBasic.result ?? []).filter(it => allowed.has(it.type as any));
+            const filteredBasic: AgentResponse = { ...normalizedBasic, result: filteredResult };
+            if (streamCallback) streamCallback({ agent: 'basic', response: filteredBasic });
+            allResults.push(filteredBasic);
+            for (const it of filteredResult) {
               sourceById.set(it.id, 'basic');
               basicResultsAll.push(it as ErrorItem);
             }
-            logger.info('agent.basic.run.summary', { reqId: context?.reqId, run: basicRun, ...summarizeItems(normalizedBasic.result) });
-            if (normalizedBasic.error) logger.warn('agent.basic.run.error', { reqId: context?.reqId, run: basicRun, error: normalizedBasic.error });
+            logger.info('agent.basic.run.summary', { reqId: context?.reqId, run: basicRun, ...summarizeItems(filteredResult) });
+            if (basicRes.error) logger.warn('agent.basic.run.error', { reqId: context?.reqId, run: basicRun, error: basicRes.error });
             recomputePatched();
           } catch (e) {
             logger.warn('agent.failed', { reqId: context?.reqId, agent: 'basic', reason: (e as Error)?.message });
@@ -198,46 +202,7 @@ export class CoordinatorAgent {
       }
     }
 
-    // Basic 阶段完成后，如启用 fluency，则运行一次流畅性检测（合并到 Basic Agent 内部实现）
-    if (enabledTypes.includes('fluency')) {
-      recomputePatched();
-      try {
-        const fluentRun = 1;
-        const fluentInputText = patchedText;
-        const prevFluentIssuesJson = '[]';
-        const prevFluentPatchedText = fluentInputText;
-        const fluentInput: AgentInputWithPrevious = {
-          text: fluentInputText,
-          previous: { issuesJson: prevFluentIssuesJson, patchedText: prevFluentPatchedText, runIndex: fluentRun },
-        };
-        const fluentRes = await BasicErrorAgentFluencyMixin.callFluency(this.basicErrorAgent, fluentInput, signal);
-        const mappedFluent: ErrorItem[] = [];
-        if (fluentRes.result && fluentRes.result.length > 0) {
-          for (const e of fluentRes.result) {
-            if (!mapPatchedToOrig) {
-              mappedFluent.push({ ...e, metadata: { ...(e.metadata ?? {}), source: 'fluent' } });
-              continue;
-            }
-            const fn: IndexMapFn = mapPatchedToOrig;
-            const ns = fn(e.start);
-            const ne = fn(e.end);
-            if (Number.isFinite(ns) && Number.isFinite(ne) && ns >= 0 && ne > ns && ne <= text.length) {
-              mappedFluent.push({ ...e, start: ns, end: ne, text: text.slice(ns, ne), metadata: { ...(e.metadata ?? {}), source: 'fluent' } });
-            }
-          }
-        }
-        const normalizedFluent: AgentResponse = { ...fluentRes, result: mappedFluent };
-        if (streamCallback) streamCallback({ agent: 'fluent', response: normalizedFluent });
-        allResults.push(normalizedFluent);
-        for (const it of normalizedFluent.result ?? []) {
-          sourceById.set(it.id, 'fluent');
-        }
-        logger.info('agent.fluent.run.summary', { reqId: context?.reqId, run: fluentRun, ...summarizeItems(normalizedFluent.result) });
-        if (fluentRes.error) logger.warn('agent.fluent.run.error', { reqId: context?.reqId, run: fluentRun, error: fluentRes.error });
-      } catch (e) {
-        logger.warn('agent.failed', { reqId: context?.reqId, agent: 'fluent', reason: (e as Error)?.message });
-      }
-    }
+    // 已合并：流畅性（fluency）由 BasicErrorAgent 内部一次性返回，不再单独调用
 
     // 最终合并
     const finalCandidates: ErrorItem[] = allResults.flatMap(r => r.result ?? []);
