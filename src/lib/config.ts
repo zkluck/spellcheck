@@ -17,8 +17,9 @@ function getEnvNumber(key: string, defaultValue: number): number {
   const value = process.env[key];
   if (value === undefined) return defaultValue;
 
-  const parsed = parseInt(value, 10);
-  return isNaN(parsed) ? defaultValue : parsed;
+  // 使用 parseFloat 支持浮点数（如 0.5），避免 parseInt("0.5") => 0 的问题
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
 /**
