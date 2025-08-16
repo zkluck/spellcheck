@@ -1,0 +1,201 @@
+.pipeline-editor {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 8px;
+  padding: 8px 0;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden; /* 防止横向滚动条 */
+  white-space: normal;       /* 允许换行 */
+  word-break: break-word;    /* 长词也能换行 */
+  overflow-wrap: anywhere;   /* 任意位置断行（兜底） */
+}
+
+.pipeline-editor__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 顶部流程概览（有序步骤 + 自动 Reviewer） */
+.pipeline-editor__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;         /* 容器窄时换行，避免溢出 */
+  gap: 6px;
+  padding: 4px 0 2px;
+  color: #344054;
+}
+
+.pipeline-editor__summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 8px;
+  background: #fff;
+  max-width: 100%;
+}
+
+.pipeline-editor__summary-label {
+  font-size: 12px;
+  color: #475467;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-editor__summary-arrow {
+  color: #98a2b3;
+  font-size: 12px;
+  user-select: none;
+}
+
+.pipeline-editor__summary-note {
+  font-size: 12px;
+  color: #667085;
+  margin-top: -2px;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* 流程说明（Legend） */
+.pipeline-editor__legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.pipeline-editor__legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: #475467;
+}
+
+.pipeline-editor__legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d0d5dd;
+  margin-top: 6px; /* 与多行文字视觉对齐 */
+  flex: 0 0 6px;
+}
+
+.pipeline-editor__legend-label {
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pipeline-editor__row {
+  display: grid;
+  /* 左侧栏较窄，改为单列堆叠，彻底避免横向裁剪 */
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.pipeline-editor__row-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #344054;
+}
+
+.pipeline-editor__row-title {
+  font-size: 12px;
+  color: #667085;
+}
+
+.pipeline-editor__row-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap; /* 宽度不足时换行，避免顶出容器 */
+  width: 100%;
+}
+
+.pipeline-editor__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pipeline-editor__add-btn,
+.pipeline-editor__ctrl-btn {
+  appearance: none;
+  border: 1px solid var(--border-color, #e5e5e5);
+  background: var(--btn-bg, #fff);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pipeline-editor__add-btn:disabled,
+.pipeline-editor__ctrl-btn:disabled,
+.pipeline-editor select:disabled,
+.pipeline-editor input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 步骤编号徽标（圆形） */
+.pipeline-editor__step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 50%;
+  background: var(--badge-bg, #eef2ff);
+  color: var(--badge-fg, #4f46e5);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.pipeline-editor select,
+.pipeline-editor input[type="number"] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: 6px;
+  background: #fff;
+  min-width: 0; /* 避免在 grid 中撑开 */
+  /* 对 select 文本采用省略，避免撑破容器 */
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 在窄侧栏中补充完整标签的展示（可换行） */
+.pipeline-editor__cell-hint {
+  font-size: 12px;
+  color: #667085;
+  margin-top: -4px;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* 智能体描述样式，独占整行 */
+.pipeline-editor__row-desc {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: #667085;
+  line-height: 1.35;
+  margin-top: -2px;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* 中等及以下宽度下，进一步提升压缩能力 */
+/* 如未来在更宽容器中使用，可再引入分栏布局 */

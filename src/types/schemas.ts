@@ -4,15 +4,26 @@ import { ErrorItemSchema } from './error';
 // 基础枚举：错误类型
 export const EnabledTypeEnum = z.enum(['spelling', 'punctuation', 'grammar', 'fluency']);
 
+// 角色 ID（目前内置 basic/reviewer；后续可扩展）
+export const RoleIdEnum = z.enum(['basic', 'reviewer']);
+
 // 非空且唯一的启用类型数组
 export const NonEmptyEnabledTypesSchema = z
   .array(EnabledTypeEnum)
   .min(1, 'enabledTypes 不能为空')
   .refine((arr) => new Set(arr).size === arr.length, 'enabledTypes 必须唯一');
 
-// Analyze 选项 Schema
+// 角色流水线项
+export const RolePipelineEntrySchema = z.object({
+  id: RoleIdEnum,
+  runs: z.number().int().positive(),
+  modelName: z.string().min(1).optional(),
+});
+
+// Analyze 选项 Schema（向后兼容：pipeline 可选）
 export const AnalyzeOptionsSchema = z.object({
   enabledTypes: NonEmptyEnabledTypesSchema,
+  pipeline: z.array(RolePipelineEntrySchema).optional(),
 });
 
 // API 请求体 Schema（/api/check）
@@ -27,6 +38,8 @@ export const CoordinatorAgentInputSchema = AnalyzeRequestSchema;
 // TypeScript 类型导出
 export type EnabledType = z.infer<typeof EnabledTypeEnum>;
 export type AnalyzeOptionsInput = z.infer<typeof AnalyzeOptionsSchema>;
+export type RoleId = z.infer<typeof RoleIdEnum>;
+export type RolePipelineEntry = z.infer<typeof RolePipelineEntrySchema>;
 
 // —— 通用 Agent 输入（带 previous）——
 export const AgentPreviousSchema = z.object({

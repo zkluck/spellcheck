@@ -1,24 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { POST } from '@/app/api/check/route';
+// 在导入 route 之前 mock 执行器，以便可控产出错误项
+vi.mock('@/lib/roles/executor', () => {
+  return {
+    runPipeline: vi.fn(async function* () {
+      // 直接产出 final 事件，包含 1 条错误，契合断言
+      yield {
+        roleId: 'basic',
+        stage: 'final',
+        payload: {
+          items: [
+            {
+              id: 'mock-error-1',
+              start: 0,
+              end: 2,
+              text: '今天',
+              suggestion: '今日',
+              type: 'grammar',
+              explanation: '建议用"今日"替换"今天"',
+            },
+          ],
+        },
+      } as any;
+    }),
+  };
+});
 
-// 模拟 langchain 模块
-vi.mock('@/lib/langchain', () => ({
-  analyzeText: vi.fn().mockImplementation(async (text, options) => {
-    // 模拟返回结果
-    return [
-      {
-        id: 'mock-error-1',
-        start: 0,
-        end: 2,
-        text: '今天',
-        suggestion: '今日',
-        type: 'grammar',
-        explanation: '建议用"今日"替换"今天"',
-      },
-    ];
-  }),
-}));
+// 在 mock 之后再导入 route 处理函数
+import { POST } from '@/app/api/check/route';
 
 describe('/api/check 接口', () => {
   beforeEach(() => {

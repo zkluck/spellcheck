@@ -4,12 +4,21 @@ import { useReducer, useCallback, useState, useEffect, useRef, useMemo } from 'r
 import dynamic from 'next/dynamic';
 import classnames from 'classnames/bind';
 import TextEditor from '@/components/TextEditor';
-import ControlBar from '@/components/ControlBar';
+const ControlBar = dynamic(() => import('@/components/ControlBar'), {
+  ssr: false,
+  loading: () => null,
+});
+// PipelineEditor 仅在客户端渲染，避免 SSR 阶段短暂显示默认智能体
+const PipelineEditor = dynamic(() => import('@/components/PipelineEditor'), {
+  ssr: false,
+  loading: () => null,
+});
 import { ErrorItem } from '@/types/error';
 import { mergeErrors } from '@/lib/langchain/merge';
 import { homeReducer, initialState } from './state';
 import styles from './index.module.scss';
 import { sseCheck } from '@/lib/api/check';
+import type { RolePipelineEntry } from '@/types/schemas';
 
 const cn = classnames.bind(styles);
 
@@ -31,6 +40,22 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   // 轻量提示：重试状态（不影响 reducer 的 isLoading 流程）
   const [retryStatus, setRetryStatus] = useState<string | null>(null);
+  // 自定义流水线（支持每角色可选 modelName）。用户无需选择 reviewer，始终由系统自动在末尾追加。
+  // 惰性初始化：首帧同步读取 localStorage，避免刷新时先渲染默认值导致的“短暂显示”。
+  const [customPipeline, setCustomPipeline] = useState<RolePipelineEntry[]>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = window.localStorage.getItem('customPipelineV1');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) return parsed.filter((s: RolePipelineEntry) => s.id !== 'reviewer');
+        }
+      }
+    } catch {}
+    return [{ id: 'basic', runs: 1 }];
+  });
+  const isPipelineEmpty = customPipeline.filter((s) => s.id !== 'reviewer').length === 0;
+
   // 流式合并的节流/批处理
   const currentErrorsRef = useRef<ErrorItem[]>([]);
   const pendingErrorsRef = useRef<ErrorItem[] | null>(null);
@@ -60,8 +85,20 @@ export default function Home() {
     dispatch({ type: 'SET_TEXT', payload: newText });
   }, []);
 
+  // 去除二次设值的 useEffect，避免默认值 -> 存储值 的闪烁
+  const handleChangeCustomPipeline = useCallback((next: RolePipelineEntry[]) => {
+    const userOnly = next.filter((s) => s.id !== 'reviewer');
+    setCustomPipeline(userOnly);
+    try { if (typeof window !== 'undefined') window.localStorage.setItem('customPipelineV1', JSON.stringify(userOnly)); } catch {}
+  }, []);
+
   const handleCheck = useCallback(async () => {
     if (!text.trim()) return;
+    const userStepsEmpty = customPipeline.filter((s) => s.id !== 'reviewer').length === 0;
+    if (userStepsEmpty) {
+      dispatch({ type: 'SET_API_ERROR', payload: '请先在左侧添加至少一个角色步骤。' });
+      return;
+    }
 
     dispatch({ type: 'START_CHECK' });
     setRetryStatus(null);
@@ -91,9 +128,16 @@ export default function Home() {
     };
 
     try {
+      // 用户可编辑部分（不含 reviewer）
+      const userSteps = customPipeline.filter((s) => s.id !== 'reviewer');
+      // 发送给后端时，自动在末尾追加 reviewer 作为最终复核步骤
+      const pipeline: RolePipelineEntry[] = [
+        ...userSteps,
+        { id: 'reviewer', runs: 1 },
+      ];
       const outcome = await sseCheck(
         text,
-        { enabledTypes },
+        { enabledTypes, pipeline },
         controller,
         {
           onChunk: (arr) => {
@@ -145,7 +189,7 @@ export default function Home() {
       }
       clearMergeSchedulers();
     }
-  }, [text]);
+  }, [text, customPipeline]);
 
   // 允许用户手动取消正在进行的检查
   const handleCancel = useCallback(() => {
@@ -245,6 +289,14 @@ export default function Home() {
         )}
         <h1 className={cn('home__title')}>AI中文文本检测</h1>
         <div className={cn('home__layout')}>
+          <div className={cn('home__sidebar')}>
+            <h3 className={cn('home__sidebar-title')}>角色流水线</h3>
+            <PipelineEditor
+              value={customPipeline}
+              onChange={handleChangeCustomPipeline}
+              disabled={isLoading}
+            />
+          </div>
           <div className={cn('home__editor-section')}>
             <TextEditor
               value={text}
@@ -268,8 +320,8 @@ export default function Home() {
               onCheck={handleCheck}
               onCancel={handleCancel}
               isLoading={isLoading}
-              hasErrors={errors.length > 0}
               textLength={text.length}
+              isPipelineEmpty={isPipelineEmpty}
             />
           </div>
           <ResultPanel

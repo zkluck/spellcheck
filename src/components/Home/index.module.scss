@@ -68,8 +68,8 @@
 .home__layout {
   display: grid;
   position: relative; /* 建立明确包含块，保证子项 z-index 对比可控 */
-  /* 固定右侧合理宽度区间，避免结果过多时挤占编辑器；避免横向溢出 */
-  grid-template-columns: minmax(520px, 1fr) clamp(380px, 36vw, 600px);
+  /* 三列布局：左侧栏 / 编辑器 / 结果面板 */
+  grid-template-columns: clamp(240px, 22vw, 340px) minmax(520px, 1fr) clamp(380px, 36vw, 600px);
   grid-template-rows: minmax(0, 1fr); /* 关键修复：定义行高以约束其子项 */
   align-items: stretch; /* 保证两列高度一致，避免堆叠错觉 */
   gap: 22px;
@@ -93,6 +93,33 @@
   min-height: 0; /* 允许在 grid/flex 布局中正确收缩 */
 }
 
+/* 左侧栏：放置 PipelineEditor */
+.home__sidebar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid rgba(2,6,23,0.06);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.05);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden; /* 防止横向滚动条 */
+  white-space: normal;       /* 允许换行 */
+  word-break: break-word;    /* 长词中断换行，防止被遮挡 */
+  overflow-wrap: anywhere;   /* 任意位置换行作为兜底 */
+}
+
+.home__sidebar-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #0f172a;
+  margin: 2px 2px 6px 2px;
+}
+
 
 
 .home__title {
@@ -114,14 +141,14 @@
 
 @media (max-width: 1024px) {
   .home__layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr; /* 小屏改为单列：左栏 -> 编辑器 -> 结果面板 顺序堆叠 */
   }
 }
 
 /* 中等屏宽下，进一步收缩右侧，避免出现横向裁剪导致“右侧挡住左侧”错觉 */
 @media (max-width: 1280px) and (min-width: 1025px) {
   .home__layout {
-    grid-template-columns: 1fr clamp(320px, 38vw, 480px);
+    grid-template-columns: clamp(220px, 22vw, 300px) 1fr clamp(320px, 38vw, 480px);
     gap: 18px;
   }
 }

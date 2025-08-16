@@ -1,10 +1,12 @@
- import { analyzeText } from '@/lib/langchain';
+// 切换为基于“角色流水线执行器”的实现
 import { AnalyzeRequestSchema } from '@/types/schemas';
 import { ErrorItemSchema } from '@/types/error';
 import type { ErrorItem } from '@/types/error';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
+import { runPipeline } from '@/lib/roles/executor';
+import { registerBuiltinRoles } from '@/lib/roles/register-builtin';
 
 // 明确使用 Node.js 运行时，确保 SSE 与服务端能力可用
 export const runtime = 'nodejs';
@@ -185,27 +187,49 @@ export async function POST(request: Request) {
     const startedAt = Date.now();
 
     if (!wantsSSE) {
-      // 非流式：直接返回 JSON，兼容测试与简单客户端
-      // 但仍然通过回调收集 Reviewer 的警告信息，置于 meta.warnings
+      // 非流式：运行角色流水线并收集最终结果
+      registerBuiltinRoles();
       const warnings: string[] = [];
-      const collectCallback = (chunk: any) => {
-        if (chunk?.agent === 'reviewer' && chunk?.response?.error) {
-          warnings.push(String(chunk.response.error));
-        }
-      };
       log('json.start');
-      const errors = await analyzeText(text, options, collectCallback, request.signal, { reqId: requestId });
-      const sanitized = sanitizeErrors(errors);
+      const roleEntries = (options.pipeline && options.pipeline.length
+        ? options.pipeline.map((p: any) => ({ id: p.id, runs: p.runs, modelName: p.modelName }))
+        : (config.langchain.workflow.pipeline || []).map((p: any) => ({ id: p.agent, runs: p.runs }))
+      );
+      // 记录本次请求实际采用的 pipeline 来源与内容
+      try {
+        const source = options.pipeline && options.pipeline.length ? 'request' : 'config';
+        log('pipeline.selected', { source, roles: roleEntries });
+      } catch {}
+      let lastItems: ErrorItem[] = [];
+      try {
+        for await (const ev of runPipeline({
+          roles: roleEntries,
+          input: { text },
+          signal: request.signal as any,
+          metadata: { enabledTypes: options.enabledTypes },
+        })) {
+          if (ev.stage === 'final') {
+            const items = Array.isArray((ev as any).payload?.items) ? (ev as any).payload.items : [];
+            lastItems = sanitizeErrors(items);
+          } else if (ev.stage === 'error') {
+            warnings.push(`${ev.roleId}:${ev.error}`);
+          }
+        }
+      } catch (e) {
+        const msg = (e as any)?.message || String(e);
+        log('json.error', { message: msg });
+        throw e;
+      }
       const elapsedMs = Date.now() - startedAt;
       const body = {
-        errors: sanitized,
+        errors: lastItems,
         meta: {
           elapsedMs,
           enabledTypes: options.enabledTypes,
           ...(warnings.length ? { warnings } : {}),
         },
       };
-      log('json.done', { elapsedMs, warnings: warnings.length, errorCount: sanitized.length });
+      log('json.done', { elapsedMs, warnings: warnings.length, errorCount: lastItems.length });
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
@@ -252,31 +276,52 @@ export async function POST(request: Request) {
         // 保活心跳，避免长链接被中间层过早断开
         const keepAlive = setInterval(() => sendComment('keep-alive'), 15000);
         // 定义流式回调
-        const streamCallback = (chunk: any) => {
-          const { agent, response } = chunk;
-          // 我们只流式传输每个 agent 的初步结果
-          const data = {
-            type: 'chunk',
-            agent,
-            errors: sanitizeErrors(response?.result),
-          };
-          safeEnqueue(data);
-          if (response?.error) {
-            safeEnqueue({ type: 'warning', agent, message: response.error });
-          }
-        };
-
         try {
           const startedAt = Date.now();
           log('sse.start');
-          // 调用核心分析函数，并传入流式回调
-          const finalResult = await analyzeText(text, options, streamCallback, request.signal, { reqId: requestId });
-          const elapsedMs = Date.now() - startedAt;
+          registerBuiltinRoles();
+          const roleEntries = (options.pipeline && options.pipeline.length
+            ? options.pipeline.map((p: any) => ({ id: p.id, runs: p.runs, modelName: p.modelName }))
+            : (config.langchain.workflow.pipeline || []).map((p: any) => ({ id: p.agent, runs: p.runs }))
+          );
+          // 记录本次 SSE 请求实际采用的 pipeline 来源与内容
+          try {
+            const source = options.pipeline && options.pipeline.length ? 'request' : 'config';
+            log('pipeline.selected', { source, roles: roleEntries });
+          } catch {}
+          let lastItems: ErrorItem[] = [];
 
-          // 在流的末尾发送最终的合并结果和元数据
+          for await (const ev of runPipeline({
+            roles: roleEntries,
+            input: { text },
+            signal: (request as any).signal,
+            metadata: { enabledTypes: options.enabledTypes },
+          })) {
+            if (ev.stage === 'start') {
+              // 可选：发送开始事件（当前协议不要求）
+            } else if (ev.stage === 'chunk') {
+              const items = Array.isArray((ev as any).payload?.items)
+                ? (ev as any).payload.items
+                : Array.isArray((ev as any).payload)
+                ? (ev as any).payload
+                : [];
+              const data = { type: 'chunk', agent: ev.roleId, errors: sanitizeErrors(items) };
+              safeEnqueue(data);
+            } else if (ev.stage === 'final') {
+              const items = Array.isArray((ev as any).payload?.items) ? (ev as any).payload.items : [];
+              lastItems = sanitizeErrors(items);
+              // 向后兼容：每个角色最终产物也以 chunk 形式发送
+              const data = { type: 'chunk', agent: ev.roleId, errors: lastItems };
+              safeEnqueue(data);
+            } else if (ev.stage === 'error') {
+              safeEnqueue({ type: 'warning', agent: ev.roleId, message: ev.error });
+            }
+          }
+
+          const elapsedMs = Date.now() - startedAt;
           const finalData = {
             type: 'final',
-            errors: sanitizeErrors(finalResult),
+            errors: lastItems,
             meta: {
               elapsedMs,
               enabledTypes: options.enabledTypes,

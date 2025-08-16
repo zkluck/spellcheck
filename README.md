@@ -4,7 +4,7 @@
 
 ## 功能特点
 
-- **多阶段检测**：系统按阶段执行（Basic、Fluency〈并入 Basic〉、Reviewer），分别负责检测不同类型的文本问题（是否执行 Reviewer 由后端 `WORKFLOW_PIPELINE` 决定；Fluency 为 Basic 的内置子流程，不出现在 pipeline 中）
+- **多阶段检测**：系统按阶段执行（Basic、Fluency〈并入 Basic〉、Reviewer），分别负责检测不同类型的文本问题（是否执行 Reviewer 默认由后端 `WORKFLOW_PIPELINE` 决定；也可由前端在请求中通过 `options.pipeline` 临时覆盖；Fluency 为 Basic 的内置子流程，不出现在 pipeline 中）
 
   - 基础错误智能体（BasicErrorAgent）：检测拼写、标点、基础语法等客观错误
   - 流畅阶段（Fluency，Basic 内置）：检测语义通顺、冗余重复与表达优化问题
@@ -14,7 +14,7 @@
 
 - 兼容说明：`fluent` 仅为来源标签（为保证日志与 SSE 兼容而保留），并非独立 Agent；Fluency 为 Basic 的内置子阶段。
 
-- 审阅阶段由后端工作流配置控制：通过环境变量 `WORKFLOW_PIPELINE` 决定是否执行 Reviewer。前端不提供开关。
+- 审阅阶段既可由后端工作流配置控制（`WORKFLOW_PIPELINE`），也可在单次请求中通过 `options.pipeline` 指定角色与运行次数（目前支持 `basic | reviewer`），从而覆盖默认流水线。前端提供“角色流水线预设”下拉供用户选择，并会将预设映射为 `options.pipeline`。
 
 - **实时编辑**：用户可以在编辑器中直接输入文本，并获得即时的检测结果
 
@@ -146,10 +146,16 @@ yarn dev
 {
   "text": "需要检查的文本",
   "options": {
-    "enabledTypes": ["grammar", "spelling", "punctuation", "fluency"]
+    "enabledTypes": ["grammar", "spelling", "punctuation", "fluency"],
+    "pipeline": [
+      { "id": "basic", "runs": 1 },
+      { "id": "reviewer", "runs": 1 }
+    ]
   }
 }
 ```
+
+说明：`options.pipeline` 为可选字段，用于覆盖后端默认的 `WORKFLOW_PIPELINE`。目前支持的 `id` 为 `basic | reviewer`，`runs` 为正整数，省略等同 1。
 
 - 成功响应：
 

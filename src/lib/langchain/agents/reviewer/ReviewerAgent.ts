@@ -109,13 +109,17 @@ const REVIEW_PROMPT = ChatPromptTemplate.fromMessages([
 ]);
 
 export class ReviewerAgent {
+  private modelName?: string;
+  constructor(opts?: { modelName?: string }) {
+    this.modelName = opts?.modelName;
+  }
   async call(input: ReviewerInput, signal?: AbortSignal): Promise<AgentResponse & { decisions?: ReviewDecision[] }> {
     const parsed = ReviewerInputSchema.safeParse(input);
     if (!parsed.success) {
       return { result: [], error: 'ReviewerAgent.invalid_input' };
     }
 
-    const llm = getLLM();
+    const llm = getLLM({ modelName: this.modelName });
     try {
       const messages = await REVIEW_PROMPT.formatMessages({
         text: input.text,

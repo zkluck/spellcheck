@@ -216,12 +216,14 @@ const COMBINED_PROMPT = ChatPromptTemplate.fromMessages([
  * BasicErrorAgent 负责检测基础的、客观的错误：拼写、标点、基础语法
  */
 export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
-  constructor() {
+  private modelName?: string;
+  constructor(opts?: { modelName?: string }) {
     super('BasicErrorAgent');
+    this.modelName = opts?.modelName;
   }
 
   async call(input: AgentInputWithPrevious, signal?: AbortSignal): Promise<AgentResponse> {
-    const llm = getLLM();
+    const llm = getLLM({ modelName: this.modelName });
 
     try {
       const messages = await COMBINED_PROMPT.formatMessages({

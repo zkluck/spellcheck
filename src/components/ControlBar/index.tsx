@@ -9,11 +9,11 @@ interface ControlBarProps {
   onCheck: () => void;
   onCancel?: () => void;
   isLoading: boolean;
-  hasErrors: boolean;
   textLength: number;
+  isPipelineEmpty: boolean;
 }
 
-export default function ControlBar({ onCheck, onCancel, isLoading, hasErrors, textLength }: ControlBarProps) {
+export default function ControlBar({ onCheck, onCancel, isLoading, textLength, isPipelineEmpty }: ControlBarProps) {
   const handleCheckOrCancel = () => {
     if (isLoading) {
       onCancel?.();
@@ -21,6 +21,7 @@ export default function ControlBar({ onCheck, onCancel, isLoading, hasErrors, te
       onCheck();
     }
   };
+  const isStartDisabled = !isLoading && (textLength === 0 || isPipelineEmpty);
 
   return (
     <div className={cn('control-bar')}>
@@ -30,10 +31,19 @@ export default function ControlBar({ onCheck, onCancel, isLoading, hasErrors, te
       <button
         className={cn('control-bar__check-button')}
         onClick={handleCheckOrCancel}
-        disabled={!isLoading && textLength === 0}
+        disabled={isStartDisabled}
       >
         {isLoading ? '取消' : '开始检测'}
       </button>
+      {isPipelineEmpty && !isLoading && (
+        <span
+          role="status"
+          aria-live="polite"
+          style={{ marginLeft: 12, fontSize: 12, color: '#667085' }}
+        >
+          请在左侧添加至少一个角色
+        </span>
+      )}
     </div>
   );
 }

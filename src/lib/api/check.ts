@@ -1,8 +1,10 @@
 import { feConfig } from '@/lib/feConfig';
 import type { ErrorItem } from '@/types/error';
+import type { RolePipelineEntry } from '@/types/schemas';
 
-export type EnabledTypesOption = {
+export type CheckOptions = {
   enabledTypes: string[];
+  pipeline?: RolePipelineEntry[];
 };
 
 export type RetryReason = 'http-5xx' | 'network' | 'idle' | 'eof-no-final' | 'unknown';
@@ -57,7 +59,7 @@ async function sleep(ms: number, signal: AbortSignal) {
 
 export async function sseCheck(
   text: string,
-  options: EnabledTypesOption,
+  options: CheckOptions,
   controller: AbortController,
   cb: SseCheckCallbacks,
   maxRetries = feConfig.maxRetries,
