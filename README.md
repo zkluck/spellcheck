@@ -14,9 +14,10 @@
 
 - 兼容说明：`fluent` 仅为来源标签（为保证日志与 SSE 兼容而保留），并非独立 Agent；Fluency 为 Basic 的内置子阶段。
 
-- 审阅阶段既可由后端工作流配置控制（`WORKFLOW_PIPELINE`），也可在单次请求中通过 `options.pipeline` 指定角色与运行次数（目前支持 `basic | reviewer`），从而覆盖默认流水线。前端提供“角色流水线预设”下拉供用户选择，并会将预设映射为 `options.pipeline`。
+- 审阅阶段控制：后端通过 `WORKFLOW_PIPELINE` 决定默认流程；API 直连可用 `options.pipeline` 临时覆盖。前端提供“自定义流水线编辑器”，其中 Reviewer 不可选，系统在发送请求时会自动作为最后一步追加（`runs=1`）。
 
 - **实时编辑**：用户可以在编辑器中直接输入文本，并获得即时的检测结果
+- **自定义流水线编辑器（前端）**：用户可配置基础阶段（`basic`）及其运行次数（`runs`，用于鲁棒性与投票）；Reviewer 在 UI 中不可选择，前端会在请求时自动把 Reviewer 追加到最后一步；顶部提供“流程概览”和步骤编号徽标，并提供 runs 的用途提示。
 
 - **一键修正**：对于检测到的问题，系统会提供修正建议，用户可以一键应用
 
@@ -155,7 +156,7 @@ yarn dev
 }
 ```
 
-说明：`options.pipeline` 为可选字段，用于覆盖后端默认的 `WORKFLOW_PIPELINE`。目前支持的 `id` 为 `basic | reviewer`，`runs` 为正整数，省略等同 1。
+说明：`options.pipeline` 为可选字段，用于覆盖后端默认的 `WORKFLOW_PIPELINE`。目前支持的 `id` 为 `basic | reviewer`，`runs` 为正整数，省略等同 1。前端 UI 中 Reviewer 不可选，提交时会自动在末尾追加 Reviewer（`runs=1`）；UI 仅允许配置 `basic` 节点及其 `runs`。
 
 - 成功响应：
 
@@ -220,7 +221,7 @@ data: {"type":"error","code":"aborted|internal","message":"...","requestId":"...
   - `ReviewerAgent.ts` 输入/裁决复用 `ReviewerInputSchema` / `ReviewDecisionSchema`；
   - `CoordinatorAgent.ts` 构造传给各 Agent 的参数均为强类型（无 `any`），传 Reviewer 的 candidates 结构与共享类型保持一致。
 - 前端/共享类型：`src/types/agent.ts` 的 `AnalyzeOptions` 直接引用 `EnabledType`，与 Zod 枚举保持一致。
-- Reviewer 开关已完全移除：是否执行 Reviewer 仅由 `WORKFLOW_PIPELINE` 及 `enabledTypes` 决定。
+- 前端无显式 Reviewer 开关：UI 始终在末尾自动追加 Reviewer；若通过 API 直连，可由 `options.pipeline` 决定是否包含 Reviewer（不使用前端 UI 时）。
 
 ### API 契约导出（JSON Schema）
 
@@ -405,6 +406,12 @@ spellcheck/
 - 冲突（区间重叠）解决：优先更短片段，其次解释信息量（`explanation` 长度），再按类型优先级，最后保持先到者稳定性。
 
 ### 前端集成建议
+
+- 自定义流水线编辑器（PipelineEditor）：
+  - Reviewer 不可选，前端在请求发送前自动在末尾追加 Reviewer（`runs=1`）。
+  - “次数（runs）”表示重复执行次数，用于提升鲁棒性与投票效果，建议 1–3。
+  - 顶部提供“流程概览”和步骤编号徽标，Tooltip 含角色说明与“重复并合并”提示。
+  - 为避免水合/闪烁：`PipelineEditor` 与 `ControlBar` 采用动态导入（`ssr: false`）；自定义流水线使用 localStorage 懒初始化，避免刷新时短暂显示默认值。
 
 - 使用 `analyzeText(text, options, streamCallback)`：
   - `streamCallback` 将依次收到 `agent: 'basic' | 'fluent' | 'reviewer'` 的结果片段，便于分栏实时渲染。
