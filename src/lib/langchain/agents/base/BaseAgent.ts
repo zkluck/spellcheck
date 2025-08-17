@@ -1,4 +1,4 @@
-import { AgentResponse } from '@/types/agent';
+import type { AgentResponseOutput as AgentResponse } from '@/types/schemas';
 
 /**
  * Abstract base class for all agents.

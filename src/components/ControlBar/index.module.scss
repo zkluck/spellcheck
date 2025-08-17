@@ -17,6 +17,20 @@
   color: #475569;
 }
 
+.control-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.control-bar__hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #667085;
+}
+
 .control-bar__check-button {
   padding: 10px 18px;
   font-size: 14px;
@@ -47,18 +61,34 @@
   outline-offset: 2px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .control-bar {
-    background:
-      linear-gradient(#0f172a, #0f172a) padding-box,
-      linear-gradient(135deg, rgba(34,211,238,0.4), rgba(99,102,241,0.4)) border-box;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  }
-  .control-bar__info { color: #cbd5e1; }
-  .control-bar__check-button {
-    background-image: linear-gradient(135deg, #22d3ee, #7c3aed);
-    box-shadow: 0 10px 30px rgba(124,58,237,0.32), 0 3px 10px rgba(34,211,238,0.18);
-  }
+/* 次级按钮：用于清空结果等非主操作 */
+.control-bar__secondary-button {
+  padding: 9px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.control-bar__secondary-button:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.control-bar__secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.control-bar__secondary-button:focus-visible {
+  outline: 2px solid rgba(99,102,241,0.45);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

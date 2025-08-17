@@ -8,6 +8,7 @@ export interface HomeState {
   isLoading: boolean;
   activeErrorId: string | null;
   history: { text: string; errors: ErrorItem[] }[];
+  reviewerMeta: any | null;
 }
 
 // Initial State
@@ -18,6 +19,7 @@ export const initialState: HomeState = {
   isLoading: false,
   activeErrorId: null,
   history: [],
+  reviewerMeta: null,
 };
 
 // 2. Action Types
@@ -25,7 +27,7 @@ export type HomeAction =
   | { type: 'SET_TEXT'; payload: string }
   | { type: 'START_CHECK' }
   | { type: 'STREAM_MERGE_ERRORS'; payload: ErrorItem[] }
-  | { type: 'FINISH_CHECK'; payload: ErrorItem[] }
+  | { type: 'FINISH_CHECK'; payload: { errors: ErrorItem[]; reviewer?: any | null } }
   | { type: 'SET_API_ERROR'; payload: string }
   | { type: 'APPLY_ERROR'; payload: { newText: string; remainingErrors: ErrorItem[] } }
   | { type: 'APPLY_ALL_ERRORS'; payload: string }
@@ -52,6 +54,7 @@ export function homeReducer(state: HomeState, action: HomeAction): HomeState {
         errors: [],
         apiError: null,
         activeErrorId: null,
+        reviewerMeta: null,
       };
     case 'STREAM_MERGE_ERRORS':
       return {
@@ -62,8 +65,9 @@ export function homeReducer(state: HomeState, action: HomeAction): HomeState {
       return {
         ...state,
         isLoading: false,
-        errors: action.payload,
-        history: [...state.history, { text: state.text, errors: action.payload }],
+        errors: action.payload.errors,
+        reviewerMeta: action.payload.reviewer ?? null,
+        history: [...state.history, { text: state.text, errors: action.payload.errors }],
       };
     case 'SET_API_ERROR':
       return {
@@ -112,6 +116,7 @@ export function homeReducer(state: HomeState, action: HomeAction): HomeState {
         errors: [],
         activeErrorId: null,
         apiError: null,
+        reviewerMeta: null,
       };
     default:
       return state;

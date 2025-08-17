@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.scss';
+import NavBar from '@/components/NavBar';
 
 export const metadata: Metadata = {
   title: 'AI中文文本检测工具',
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <NavBar />
+        {children}
+      </body>
     </html>
   );
 }

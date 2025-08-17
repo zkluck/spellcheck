@@ -37,37 +37,58 @@ function getEnvBool(key: string, defaultValue: boolean): boolean {
  */
 export const config = {
   /**
+   * 检测质量配置
+   */
+  detection: {
+    /**
+     * 置信度阈值配置
+     */
+    thresholds: {
+      spelling: getEnvNumber('DETECTION_SPELLING_THRESHOLD', 0.85),
+      grammar: getEnvNumber('DETECTION_GRAMMAR_THRESHOLD', 0.75),
+      punctuation: getEnvNumber('DETECTION_PUNCTUATION_THRESHOLD', 0.90),
+      fluency: getEnvNumber('DETECTION_FLUENCY_THRESHOLD', 0.65)
+    },
+    /**
+     * 规则引擎配置
+     */
+    ruleEngine: {
+      enabled: getEnvBool('RULE_ENGINE_ENABLED', true),
+      priority: getEnvNumber('RULE_ENGINE_PRIORITY', 1.0) // 规则引擎结果优先级权重
+    }
+  },
+  /**
    * LangChain 相关配置
    */
   langchain: {
     /**
      * analyzeText 超时时间（毫秒）
-     * 默认: 20000ms (20秒)
+     * 默认: 60000ms (60秒)
      * 环境变量: ANALYZE_TIMEOUT_MS
      */
     analyzeTimeoutMs: getEnvNumber('ANALYZE_TIMEOUT_MS', 60000),
     /**
      * 工作流配置：仅保留可读性强的 pipeline 字符串，自由配置顺序与次数。
-     * 例如：WORKFLOW_PIPELINE="basic*2,reviewer*1"
-     * 可用 agent：basic | reviewer；省略 *n 等同 *1。
+     * 例如：WORKFLOW_PIPELINE="basic*2"
+     * 可用 agent：basic；省略 *n 等同 *1。
      */
-    workflow: ((): { pipeline: Array<{ agent: 'basic' | 'reviewer'; runs: number }> } => {
-      const raw = getEnv('WORKFLOW_PIPELINE', 'basic*1,reviewer*1');
+    workflow: ((): { pipeline: Array<{ agent: 'basic'; runs: number }> } => {
+      const raw = getEnv('WORKFLOW_PIPELINE', 'basic*1');
       const parsed = parsePipelineEnv(raw);
       const PipelineEntrySchema = z.object({
-        agent: z.enum(['basic', 'reviewer']),
+        agent: z.enum(['basic']),
         runs: z.number().int().positive(),
       });
       const PipelineSchema = z.array(PipelineEntrySchema).min(1);
-      const safe = PipelineSchema.safeParse(parsed);
-      if (safe.success) return { pipeline: safe.data };
-      // 回退默认
-      return {
-        pipeline: [
-          { agent: 'basic', runs: 1 },
-          { agent: 'reviewer', runs: 1 },
-        ],
-      };
+      const validated = PipelineSchema.safeParse(parsed);
+      if (!validated.success) {
+        return {
+          pipeline: [
+            { agent: 'basic', runs: 1 },
+          ],
+        };
+      }
+      return { pipeline: validated.data };
     })(),
     /**
      * 合并阶段行为
@@ -132,23 +153,6 @@ export const config = {
           allowLocateFallback: getEnvBool('FLUENT_ALLOW_LOCATE_FALLBACK', false),
         },
       },
-      reviewer: {
-        /**
-         * 置信度阈值（仅保留 >= 阈值），默认 0.9
-         * 环境变量：REVIEWER_MIN_CONFIDENCE
-         */
-        minConfidence: getEnvNumber('REVIEWER_MIN_CONFIDENCE', 0.9),
-        /**
-         * 最大输出数量上限（返回前强制裁剪），默认 200
-         * 环境变量：REVIEWER_MAX_OUTPUT
-         */
-        maxOutput: getEnvNumber('REVIEWER_MAX_OUTPUT', 200),
-        /**
-         * 是否强制仅保留索引“严格匹配”的项（metadata.locate === 'exact'）
-         * 默认 true；环境变量：REVIEWER_REQUIRE_EXACT_INDEX
-         */
-        requireExactIndex: getEnvBool('REVIEWER_REQUIRE_EXACT_INDEX', true),
-      },
     },
   },
   /**
@@ -164,36 +168,30 @@ export const config = {
   },
 };
 
-/**
- * 获取布尔类型环境变量，如果不存在则返回默认值
- * 支持的真值: 1,true,yes,on（忽略大小写）·
- */
-// 旧的布尔/开关工具已移除，不再使用
 
 /**
  * 解析 WORKFLOW_PIPELINE 环境变量
- * 语法示例："basic*2, reviewer*1"
+ * 语法示例："basic*2"
  */
 function parsePipelineEnv(
   raw: string
-): Array<{ agent: 'basic' | 'reviewer'; runs: number }> {
+): Array<{ agent: 'basic'; runs: number }> {
   const items = String(raw || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const out: Array<{ agent: 'basic' | 'reviewer'; runs: number }> =
+  const out: Array<{ agent: 'basic'; runs: number }> =
     [];
   for (const it of items) {
-    const m = it.match(/^(basic|reviewer)(?:\*(\d+))?$/i);
+    const m = it.match(/^(basic)(?:\*(\d+))?$/i);
     if (!m) continue;
-    const agent = m[1].toLowerCase() as 'basic' | 'reviewer';
+    const agent = m[1].toLowerCase() as 'basic';
     const runs = Math.max(1, parseInt(m[2] ?? '1', 10) || 1);
     out.push({ agent, runs });
   }
   if (out.length === 0)
     return [
       { agent: 'basic', runs: 1 },
-      { agent: 'reviewer', runs: 1 },
     ];
   return out;
 }

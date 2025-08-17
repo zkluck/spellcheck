@@ -1,0 +1,31 @@
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: var(--navbar-h);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding: 0 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.brandTitle {
+  font-size: 14px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

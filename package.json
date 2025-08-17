@@ -10,6 +10,7 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
     "test:watch": "vitest",
     "test:ci": "vitest run --coverage",
     "e2e": "cross-env E2E_ENABLE=1 playwright test",

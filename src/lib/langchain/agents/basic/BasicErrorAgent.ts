@@ -1,14 +1,15 @@
-import { BaseAgent } from '@/lib/langchain/agents/base/BaseAgent';
-import { AgentResponse } from '@/types/agent';
-import { ErrorItem } from '@/types/error';
+import { BaseAgent } from '../base/BaseAgent';
+import { AgentInputWithPrevious, AgentResponseOutput } from '@/types/schemas';
 import { getLLM } from '@/lib/langchain/models/llm-config';
-import type { AgentInputWithPrevious } from '@/types/schemas';
+import { config } from '@/lib/config';
+import { logger } from '@/lib/logger';
+import { ErrorItem, ErrorItemSchema } from '@/types/error';
 import { AgentResponseSchema } from '@/types/schemas';
+import { ruleEngine } from '@/lib/rules/engine';
+import { ResultPostProcessor } from '@/lib/rules/postprocessor';
 import { extractJsonArrayFromContent, toErrorItems } from '@/lib/langchain/utils/llm-output';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { guardLLMInvoke } from '@/lib/langchain/utils/llm-guard';
-import { logger } from '@/lib/logger';
-import { config } from '@/lib/config';
 
 // 将包含 JSON 花括号的示例放到变量里，避免 ChatPromptTemplate 把花括号当占位符解析
 const BASIC_ERROR_EXAMPLES = `
@@ -158,39 +159,59 @@ const COMBINED_PROMPT = ChatPromptTemplate.fromMessages([
     'system',
     `
 <ROLE_AND_GOAL>
-你是一个严谨、专注的中文文本审校专家。请在不引入主观风格改写、且不依赖外部知识的前提下，
-检测并返回以下两类问题，统一以一个 JSON 数组返回：
-- 基础错误：拼写 (spelling)、标点 (punctuation)、基础语法 (grammar)；
-- 表达流畅性：fluency（在不改变原意的前提下进行最小替换的可读性/搭配/冗余等优化）。
+你是一个专业的中文文本校对专家，具备深厚的语言学功底。请严格按照以下标准检测文本问题：
+
+**检测范围：**
+1. 拼写错误 (spelling)：错别字、同音字误用、的/地/得混用
+2. 标点符号 (punctuation)：标点使用错误、重复标点、缺失标点
+3. 语法错误 (grammar)：量词搭配、语序问题、语法结构错误
+4. 表达流畅性 (fluency)：冗余表达、不自然搭配、可优化的表述
+
+**质量要求：**
+- 高置信度：只输出确定性高的错误，避免主观判断
+- 最小干预：保持原文风格，不进行大幅改写
+- 精确定位：确保索引位置完全准确
 </ROLE_AND_GOAL>
 
 <OUTPUT_FORMAT>
-你的唯一输出必须是一个 JSON 数组（可为空 []），不得包含说明文字或 Markdown 代码块。
-数组中的每个对象包含以下字段（所有字段必填）：
-- "type": "spelling" | "punctuation" | "grammar" | "fluency" 之一；
-- "text": 从原文中截取的、包含问题的最小片段；
-- "start": 片段在原文中的起始 UTF-16 索引；
-- "end": 片段在原文中的结束 UTF-16 索引（必须 > start）；
-- "suggestion": 修正/替换建议；若为删除则为空字符串 ""；
-- "explanation": 简明、客观的说明；
-- "quote": 与 "text" 完全一致；
-- "confidence": 0.0-1.0 的置信度，仅在把握高时输出该项。
+输出格式：纯 JSON 数组，无其他文字。每个错误对象包含：
+- "type": 错误类型 ("spelling"|"punctuation"|"grammar"|"fluency")
+- "text": 原文错误片段（必须与索引位置完全匹配）
+- "start": 起始索引位置（UTF-16）
+- "end": 结束索引位置（UTF-16）
+- "suggestion": 修正建议（删除时为空字符串）
+- "explanation": 错误说明（简洁明确）
+- "quote": 与text字段相同
+- "confidence": 置信度（0.0-1.0，高置信度才输出）
 </OUTPUT_FORMAT>
 
-<RULES>
-1. 索引精确：必须满足 original.slice(start, end) === text。
-2. 最小编辑：仅做必要的最小替换，禁止大段改写与主观润色。
-3. 禁止纯插入：如需“插入”，通过最小替换实现，并在 suggestion 中体现新增内容。
-4. 不重叠：所有 (start,end) 区间之间不得重叠。
-5. 数量上限：最多输出 200 项。
-6. 失败回避：若无法严格保证索引与 text 完全匹配，请不要输出该项。
-</RULES>
+<DETECTION_STRATEGY>
+**拼写检测重点：**
+- 的/地/得：修饰名词用"的"，修饰动词用"地"，补语前用"得"
+- 常见错别字：在/再、做/作、像/象、以/已等
+- 同音字误用：根据语境判断正确用字
+
+**标点检测重点：**
+- 重复标点：！！、？？、。。。等应简化
+- 引号配对：确保引号正确配对使用
+- 逗号顿号：并列关系使用顿号，其他用逗号
+
+**语法检测重点：**
+- 量词搭配：人用"位"，书用"本"，车用"辆"等
+- 语序问题：主谓宾、定状补的正确顺序
+- 结构完整：避免成分残缺
+
+**流畅性检测重点：**
+- 冗余删除：去除不必要的重复词汇
+- 搭配优化：改善不自然的词语搭配
+- 表达简化：将复杂表述简化为自然表达
+</DETECTION_STRATEGY>
 
 <EXAMPLES>
-【基础错误】
+【基础错误示例】
 {basicExamples}
 
-【流畅性】
+【流畅性示例】
 {fluentExamples}
 </EXAMPLES>
 `.trim()
@@ -222,10 +243,16 @@ export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
     this.modelName = opts?.modelName;
   }
 
-  async call(input: AgentInputWithPrevious, signal?: AbortSignal): Promise<AgentResponse> {
+  async call(input: AgentInputWithPrevious, signal?: AbortSignal): Promise<AgentResponseOutput> {
     const llm = getLLM({ modelName: this.modelName });
 
     try {
+      // 首先使用规则引擎检测
+      const ruleResults = config.detection.ruleEngine.enabled 
+        ? ruleEngine.detect(input.text)
+        : [];
+
+      // 然后使用 LLM 检测
       const messages = await COMBINED_PROMPT.formatMessages({
         text: input.text,
         prevIssues: input.previous?.issuesJson ?? '',
@@ -298,21 +325,25 @@ export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
         return typeof c === 'number' && c >= config.langchain.agents.basic.fluency.minConfidence;
       }).slice(0, Math.max(0, config.langchain.agents.basic.fluency.maxOutput || 0));
 
-      const finalErrors = [...basicFiltered, ...fluentFiltered];
+      const llmErrors = [...basicFiltered, ...fluentFiltered];
+
+      // 使用后处理器合并和优化结果
+      const finalErrors = ResultPostProcessor.process(ruleResults, llmErrors);
 
       const parsedOut = AgentResponseSchema.safeParse({ result: finalErrors, rawOutput });
       if (!parsedOut.success) {
         logger.warn('BasicErrorAgent.output_invalid', { zod: parsedOut.error.flatten?.() ?? String(parsedOut.error) });
-        return { result: [], error: 'BasicErrorAgent.invalid_output', rawOutput } as AgentResponse;
+        return { result: [], error: 'BasicErrorAgent.invalid_output', rawOutput } as AgentResponseOutput;
       }
-      return parsedOut.data as AgentResponse;
+      return parsedOut.data as AgentResponseOutput;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('BasicErrorAgent.invoke.error', { error: errorMessage });
       return { 
         result: [],
-        error: errorMessage
-      };
+        error: errorMessage,
+        rawOutput: ''
+      } as AgentResponseOutput;
     }
   }
 }

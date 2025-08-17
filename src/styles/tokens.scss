@@ -44,24 +44,3 @@
   --dur-slow: 280ms;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-surface: #0b1220;
-    --color-bg: #0b1220;
-    --color-text: #e2e8f0;
-    --color-text-secondary: #cbd5e1;
-    --color-text-muted: #94a3b8;
-    --color-border: #1f2937;
-    --color-border-subtle: #0f172a;
-
-    --color-primary: #22d3ee; /* cyan-400 */
-    --color-primary-accent: #7c3aed; /* violet-600 */
-    --color-secondary: #64748b;
-    --color-secondary-accent: #475569;
-
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.35);
-    --shadow-md: 0 6px 18px rgba(0,0,0,0.40);
-    --shadow-lg: 0 8px 22px rgba(0,0,0,0.45);
-    --shadow-xl: 0 12px 28px rgba(0,0,0,0.50);
-  }
-}

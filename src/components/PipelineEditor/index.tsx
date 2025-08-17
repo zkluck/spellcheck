@@ -19,16 +19,14 @@ const AGENT_OPTIONS: Array<{ value: RolePipelineEntry['id']; label: string }> = 
 
 const AGENT_DESCRIPTIONS: Record<RolePipelineEntry['id'], string> = {
   basic: '基础智能体：进行初步的语法、拼写、标点检查与轻量润色，输出稳定可靠的初稿。',
-  reviewer: '复核智能体：对初稿进行二次审阅与一致性检查，提出更严格的修改建议。',
 };
 
 // 可用模型下拉：可根据需要扩展或改为从后端拉取
 const MODEL_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: '使用默认模型' },
   { value: 'Doubao-1.5-lite-32k', label: 'Doubao-1.5-lite-32k' },
-  { value: 'qwen-turbo', label: 'Qwen Turbo' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o mini' },
-  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'doubao-1.5-vision-lite-250315', label: 'Doubao-1.5-vision-lite-250315' },
+  { value: 'doubao-1.5-vision-pro-250328', label: 'Doubao-1.5-vision-pro-250328' },
 ];
 
 export default function PipelineEditor({ value, onChange, disabled }: PipelineEditorProps) {
@@ -73,37 +71,24 @@ export default function PipelineEditor({ value, onChange, disabled }: PipelineEd
           <Fragment key={`sum-wrap-${idx}`}>
             <div
               className={cn('pipeline-editor__summary-item')}
-              title={`${(AGENT_OPTIONS.find(op => op.value === row.id)?.label) || row.id}｜${AGENT_DESCRIPTIONS[row.id] || ''}${row.runs > 1 ? `｜重复 ${row.runs} 次并合并` : ''}`}
+              title={`${(AGENT_OPTIONS.find(op => op.value === row.id)?.label) || row.id}｜${AGENT_DESCRIPTIONS[row.id] || ''}`}
             >
               <span className={cn('pipeline-editor__step-badge')}>{idx + 1}</span>
               <span className={cn('pipeline-editor__summary-label')}>
                 {(AGENT_OPTIONS.find(op => op.value === row.id)?.label) || row.id}
-                {row.runs > 1 ? ` ×${row.runs}` : ''}
               </span>
             </div>
             {idx < value.length - 1 && <span className={cn('pipeline-editor__summary-arrow')}>→</span>}
           </Fragment>
         ))}
-        {value.length > 0 && <span className={cn('pipeline-editor__summary-arrow')}>→</span>}
-        <div
-          className={cn('pipeline-editor__summary-item')}
-          title={`Reviewer（自动）｜${AGENT_DESCRIPTIONS.reviewer}`}
-        >
-          <span className={cn('pipeline-editor__step-badge')}>{value.length + 1}</span>
-          <span className={cn('pipeline-editor__summary-label')}>Reviewer（自动）</span>
-        </div>
       </div>
       <div className={cn('pipeline-editor__summary-note')}>
-        执行顺序自左向右；每一步可按“次数”重复执行并合并；系统会在最后自动追加 Reviewer 进行复核。
+        执行顺序自左向右。
       </div>
       <div className={cn('pipeline-editor__legend')}>
         <div className={cn('pipeline-editor__legend-item')}>
           <span className={cn('pipeline-editor__legend-dot')} aria-hidden="true" />
           <span className={cn('pipeline-editor__legend-label')}>基础（basic）：{AGENT_DESCRIPTIONS.basic}</span>
-        </div>
-        <div className={cn('pipeline-editor__legend-item')}>
-          <span className={cn('pipeline-editor__legend-dot')} aria-hidden="true" />
-          <span className={cn('pipeline-editor__legend-label')}>Reviewer（自动）：{AGENT_DESCRIPTIONS.reviewer}</span>
         </div>
       </div>
       <div className={cn('pipeline-editor__rows')}>
@@ -128,26 +113,7 @@ export default function PipelineEditor({ value, onChange, disabled }: PipelineEd
             <div className={cn('pipeline-editor__cell-hint')}>
               {(AGENT_OPTIONS.find(op => op.value === row.id)?.label) || ''}
             </div>
-
-            <input
-              className={cn('pipeline-editor__cell', 'pipeline-editor__cell--runs')}
-              type="number"
-              min={1}
-              step={1}
-              value={row.runs}
-              onChange={(e) => {
-                const n = Math.max(1, parseInt(e.target.value || '1', 10) || 1);
-                updateRow(idx, { runs: n });
-              }}
-              disabled={disabled}
-              aria-label={`运行次数 ${idx + 1}`}
-              title="同一角色重复执行的次数。可用于提高稳健性/投票合并；次数越多，耗时/费用越高。常用 1-3。"
-            />
-            <div className={cn('pipeline-editor__cell-hint')}>
-              {row.runs > 1
-                ? `将执行 ${row.runs} 次并合并结果；次数越多耗时越长`
-                : '重复执行次数，常用 1-3；次数越多耗时越长'}
-            </div>
+            {/* runs（重复执行次数）暂时隐藏 */}
 
             <select
               className={cn('pipeline-editor__cell', 'pipeline-editor__cell--model')}

@@ -179,6 +179,44 @@
   margin-bottom: var(--space-3);
 }
 
+/* 审阅器状态 Banner */
+.result-panel__banner {
+  display: grid;
+  row-gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  margin: 4px 0 10px 0;
+}
+
+.result-panel__banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.result-panel__banner-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.result-panel__banner--info {
+  border-color: rgba(59,130,246,0.25);
+  background: linear-gradient(0deg, rgba(59,130,246,0.06), rgba(59,130,246,0.06)), var(--color-surface);
+}
+
+.result-panel__banner--warning {
+  border-color: rgba(245,158,11,0.35);
+  background: linear-gradient(0deg, rgba(245,158,11,0.08), rgba(245,158,11,0.08)), var(--color-surface);
+}
+
+.result-panel__banner--error {
+  border-color: rgba(220,38,38,0.35);
+  background: linear-gradient(0deg, rgba(220,38,38,0.08), rgba(220,38,38,0.08)), var(--color-surface);
+}
+
 .result-panel__filter-group {
   display: flex;
   align-items: center;
@@ -342,25 +380,6 @@
   outline-offset: 2px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .error-item {
-    background:
-      linear-gradient(#0b1220, #0b1220) padding-box,
-      linear-gradient(135deg, rgba(34,211,238,0.35), rgba(99,102,241,0.35)) border-box;
-  }
-  .error-item__inner {
-    box-shadow: 0 2px 14px rgba(0,0,0,0.35);
-  }
-  .error-item:hover .error-item__inner {
-    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
-  }
-  .error-item--active .error-item__inner {
-    box-shadow: 0 0 0 2px rgba(34,211,238,0.35), 0 8px 28px rgba(0,0,0,0.6);
-  }
-  .error-item--conflict .error-item__inner {
-    box-shadow: 0 0 0 2px rgba(255,152,0,0.35), 0 10px 26px rgba(255,152,0,0.25);
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .error-item { transition: box-shadow 0.2s ease; }
@@ -471,18 +490,6 @@
   outline-offset: 2px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .result-panel__action-button--primary,
-  .error-item__apply-button {
-    background-image: linear-gradient(135deg, #22d3ee, #7c3aed);
-    box-shadow: 0 10px 26px rgba(124,58,237,0.35), 0 3px 10px rgba(34,211,238,0.22);
-  }
-  .result-panel__action-button--secondary,
-  .error-item__ignore-button {
-    background-image: linear-gradient(135deg, #475569, #64748b);
-    box-shadow: 0 8px 22px rgba(15,23,42,0.45), 0 3px 10px rgba(71,85,105,0.35);
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .result-panel__action-button,

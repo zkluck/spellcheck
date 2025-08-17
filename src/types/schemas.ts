@@ -4,8 +4,8 @@ import { ErrorItemSchema } from './error';
 // 基础枚举：错误类型
 export const EnabledTypeEnum = z.enum(['spelling', 'punctuation', 'grammar', 'fluency']);
 
-// 角色 ID（目前内置 basic/reviewer；后续可扩展）
-export const RoleIdEnum = z.enum(['basic', 'reviewer']);
+// 角色 ID（目前内置 basic；后续可扩展）
+export const RoleIdEnum = z.enum(['basic']);
 
 // 非空且唯一的启用类型数组
 export const NonEmptyEnabledTypesSchema = z
@@ -53,51 +53,12 @@ export const AgentInputWithPreviousSchema = z.object({
   previous: AgentPreviousSchema.optional(),
 });
 
-// —— Reviewer 相关 ——
-export const ReviewerCandidateSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  start: z.number(),
-  end: z.number(),
-  suggestion: z.string(),
-  type: EnabledTypeEnum,
-  explanation: z.string().optional(),
-});
-
-export const ReviewerInputSchema = z.object({
-  text: z.string(),
-  candidates: z.array(ReviewerCandidateSchema),
-});
-
-export const ReviewDecisionSchema = z
-  .object({
-    id: z.string(),
-    status: z.enum(['accept', 'reject', 'modify']),
-    // 当 modify 时，可返回新的 span/suggestion/explanation
-    start: z.number().optional(),
-    end: z.number().optional(),
-    suggestion: z.string().optional(),
-    explanation: z.string().optional(),
-    confidence: z.number().min(0).max(1).optional(),
-  })
-  .superRefine((val, ctx) => {
-    // 若同时提供 start/end，则必须合法：end > start 且二者均为有限数
-    if (typeof val.start === 'number' && typeof val.end === 'number') {
-      if (!(Number.isFinite(val.start) && Number.isFinite(val.end) && val.end > val.start && val.start >= 0)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['end'], message: 'invalid span: require 0<=start<end' });
-      }
-    }
-  });
-
 export type AgentPrevious = z.infer<typeof AgentPreviousSchema>;
 export type AgentInputWithPrevious = z.infer<typeof AgentInputWithPreviousSchema>;
-export type ReviewerCandidate = z.infer<typeof ReviewerCandidateSchema>;
-export type ReviewerInput = z.infer<typeof ReviewerInputSchema>;
-export type ReviewDecision = z.infer<typeof ReviewDecisionSchema>;
 
 // —— Agent 返回值（运行时校验）——
 export const AgentResponseSchema = z.object({
-  result: z.array(ErrorItemSchema).optional(),
+  result: z.array(ErrorItemSchema),
   error: z.string().optional(),
   rawOutput: z.string().optional(),
 });

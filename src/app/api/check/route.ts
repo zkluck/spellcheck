@@ -187,7 +187,7 @@ export async function POST(request: Request) {
     const startedAt = Date.now();
 
     if (!wantsSSE) {
-      // 非流式：运行角色流水线并收集最终结果
+      // 非流式：运行角色流水线并收集最终结果（支持 Reviewer 失败/为空时回退 Basic）
       registerBuiltinRoles();
       const warnings: string[] = [];
       log('json.start');
@@ -200,7 +200,13 @@ export async function POST(request: Request) {
         const source = options.pipeline && options.pipeline.length ? 'request' : 'config';
         log('pipeline.selected', { source, roles: roleEntries });
       } catch {}
-      let lastItems: ErrorItem[] = [];
+
+      let basicItems: ErrorItem[] = [];
+      let reviewerItems: ErrorItem[] = [];
+      let reviewerRan = false;
+      let reviewerError: string | undefined;
+      let decisionsStat = { accepted: 0, rejected: 0, modified: 0 };
+
       try {
         for await (const ev of runPipeline({
           roles: roleEntries,
@@ -209,10 +215,33 @@ export async function POST(request: Request) {
           metadata: { enabledTypes: options.enabledTypes },
         })) {
           if (ev.stage === 'final') {
-            const items = Array.isArray((ev as any).payload?.items) ? (ev as any).payload.items : [];
-            lastItems = sanitizeErrors(items);
+            const payload: any = (ev as any).payload || {};
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            const sanitized = sanitizeErrors(items);
+            if (ev.roleId === 'basic') {
+              basicItems = sanitized;
+            } else if (ev.roleId === 'reviewer') {
+              reviewerRan = true;
+              reviewerItems = sanitized;
+              const decisions = Array.isArray(payload.decisions) ? payload.decisions : [];
+              if (decisions.length) {
+                const stat = { accepted: 0, rejected: 0, modified: 0 } as any;
+                for (const d of decisions) {
+                  const s = String((d?.status ?? '').toString().toLowerCase());
+                  if (s === 'accept') stat.accepted++;
+                  else if (s === 'reject') stat.rejected++;
+                  else if (s === 'modify' || s === 'revise') stat.modified++;
+                }
+                decisionsStat = stat;
+              }
+              if (payload.error) reviewerError = String(payload.error);
+            }
           } else if (ev.stage === 'error') {
             warnings.push(`${ev.roleId}:${ev.error}`);
+            if (ev.roleId === 'reviewer') {
+              reviewerRan = true;
+              reviewerError = String(ev.error || 'unknown_error');
+            }
           }
         }
       } catch (e) {
@@ -220,16 +249,34 @@ export async function POST(request: Request) {
         log('json.error', { message: msg });
         throw e;
       }
+
       const elapsedMs = Date.now() - startedAt;
+      const reviewerStatus = !reviewerRan
+        ? 'skipped'
+        : reviewerError
+        ? 'error'
+        : reviewerItems.length === 0
+        ? 'empty'
+        : 'ok';
+      const fallbackUsed = reviewerRan && reviewerItems.length === 0 && basicItems.length > 0;
+      const finalErrors = reviewerItems.length > 0 ? reviewerItems : basicItems;
+
       const body = {
-        errors: lastItems,
+        errors: finalErrors,
         meta: {
           elapsedMs,
           enabledTypes: options.enabledTypes,
+          reviewer: {
+            ran: reviewerRan,
+            status: reviewerStatus,
+            counts: decisionsStat,
+            fallbackUsed,
+            ...(reviewerError ? { error: reviewerError } : {}),
+          },
           ...(warnings.length ? { warnings } : {}),
         },
-      };
-      log('json.done', { elapsedMs, warnings: warnings.length, errorCount: lastItems.length });
+      } as any;
+      log('json.done', { elapsedMs, warnings: warnings.length, errorCount: body.errors.length, reviewer: body.meta.reviewer });
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
@@ -290,6 +337,12 @@ export async function POST(request: Request) {
             log('pipeline.selected', { source, roles: roleEntries });
           } catch {}
           let lastItems: ErrorItem[] = [];
+          // 跟踪 basic / reviewer 结果用于最终回退
+          let basicItems: ErrorItem[] = [];
+          let reviewerItems: ErrorItem[] = [];
+          let reviewerRan = false;
+          let reviewerError: string | undefined;
+          let decisionsStat = { accepted: 0, rejected: 0, modified: 0 };
 
           for await (const ev of runPipeline({
             roles: roleEntries,
@@ -308,27 +361,67 @@ export async function POST(request: Request) {
               const data = { type: 'chunk', agent: ev.roleId, errors: sanitizeErrors(items) };
               safeEnqueue(data);
             } else if (ev.stage === 'final') {
-              const items = Array.isArray((ev as any).payload?.items) ? (ev as any).payload.items : [];
+              const payload: any = (ev as any).payload || {};
+              const items = Array.isArray(payload.items) ? payload.items : [];
               lastItems = sanitizeErrors(items);
+              // 跟踪 basic/reviewer
+              if (ev.roleId === 'basic') {
+                basicItems = lastItems;
+              } else if (ev.roleId === 'reviewer') {
+                reviewerRan = true;
+                reviewerItems = lastItems;
+                const decisions = Array.isArray(payload.decisions) ? payload.decisions : [];
+                if (decisions.length) {
+                  const stat = { accepted: 0, rejected: 0, modified: 0 } as any;
+                  for (const d of decisions) {
+                    const s = String((d?.status ?? '').toString().toLowerCase());
+                    if (s === 'accept') stat.accepted++;
+                    else if (s === 'reject') stat.rejected++;
+                    else if (s === 'modify' || s === 'revise') stat.modified++;
+                  }
+                  decisionsStat = stat;
+                }
+                if (payload.error) reviewerError = String(payload.error);
+              }
               // 向后兼容：每个角色最终产物也以 chunk 形式发送
               const data = { type: 'chunk', agent: ev.roleId, errors: lastItems };
               safeEnqueue(data);
             } else if (ev.stage === 'error') {
               safeEnqueue({ type: 'warning', agent: ev.roleId, message: ev.error });
+              if (ev.roleId === 'reviewer') {
+                reviewerRan = true;
+                reviewerError = String(ev.error || 'unknown_error');
+              }
             }
           }
 
           const elapsedMs = Date.now() - startedAt;
+          const reviewerStatus = !reviewerRan
+            ? 'skipped'
+            : reviewerError
+            ? 'error'
+            : reviewerItems.length === 0
+            ? 'empty'
+            : 'ok';
+          const fallbackUsed = reviewerRan && reviewerItems.length === 0 && basicItems.length > 0;
+          const finalErrors = reviewerItems.length > 0 ? reviewerItems : basicItems;
           const finalData = {
             type: 'final',
-            errors: lastItems,
+            errors: finalErrors,
             meta: {
               elapsedMs,
               enabledTypes: options.enabledTypes,
+              reviewer: {
+                ran: reviewerRan,
+                status: reviewerStatus,
+                counts: decisionsStat,
+                fallbackUsed,
+                ...(reviewerError ? { error: reviewerError } : {}),
+              },
             },
-          };
+          } as any;
           safeEnqueue(finalData);
-          log('sse.final', { elapsedMs, errorCount: Array.isArray(finalData.errors) ? finalData.errors.length : 0 });
+          log('sse.final', { elapsedMs, errorCount: Array.isArray(finalData.errors) ? finalData.errors.length : 0, reviewer: finalData.meta.reviewer });
         } catch (error) {
           const err: any = error;
           const message = err?.message || String(err);

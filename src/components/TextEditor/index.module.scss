@@ -38,13 +38,17 @@
   margin: 0;
   padding: 12px; /* 更舒展的内边距 */
   width: 100%;
+  height: 100%;
   box-sizing: border-box;
   border: none;
   background-color: transparent;
-  font: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
   letter-spacing: inherit;
   white-space: pre-wrap;
   word-wrap: break-word;
+  word-break: break-word;
   /* 确保文本渲染完全一致 */
   text-rendering: optimizeSpeed;
   -webkit-font-smoothing: antialiased;
@@ -52,13 +56,16 @@
 }
 
 .text-editor__input {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   z-index: 2;
   color: transparent;
   caret-color: #0f172a;
   resize: none;
-  height: 100%; /* 关键修复：确保 textarea 高度受限于其容器 */
-  overflow-y: scroll;
+  overflow: auto;
+  /* 确保滚动条不影响内容区域 */
+  scrollbar-gutter: stable;
 }
 
 .text-editor__input:focus {
@@ -69,12 +76,13 @@
   position: absolute;
   top: 0;
   left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 1;
   pointer-events: none;
   color: #0f172a;
-  /* 最终修复：使用精确计算的滚动条宽度进行补偿 */
-  padding: 12px calc(12px + var(--scrollbar-width, 17px)) 12px 12px;
-  /* 确保与 textarea 完全同步 */
+  padding: 12px;
+  padding-right: calc(12px + var(--scrollbar-width, 17px)); /* 动态滚动条宽度 */
   overflow: hidden;
   word-break: break-word;
 }
@@ -109,12 +117,3 @@
   border-bottom: 2px solid #3b82f6;
 }
 
-/* 暗色模式适配 */
-@media (prefers-color-scheme: dark) {
-  .text-editor {
-    background:
-      linear-gradient(#0f172a, #0f172a) padding-box,
-      linear-gradient(135deg, rgba(34,211,238,0.4), rgba(99,102,241,0.4)) border-box;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  }
-}

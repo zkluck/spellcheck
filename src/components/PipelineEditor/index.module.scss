@@ -14,7 +14,7 @@
 .pipeline-editor__rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 /* 顶部流程概览（有序步骤 + 自动 Reviewer） */
@@ -100,6 +100,31 @@
   gap: 8px;
   align-items: start;
   min-width: 0;
+  position: relative;
+  background: #ffffff;
+  border: 1px solid rgba(2,6,23,0.06);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.05);
+  padding: 12px;
+  overflow: hidden; /* 保证阴影与圆角视觉一致 */
+}
+
+/* 左侧色条强调每个步骤的独立性 */
+.pipeline-editor__row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #6366f1, #22d3ee);
+  opacity: 0.6;
+}
+
+/* 聚焦交互反馈：编辑某步骤时更显著 */
+.pipeline-editor__row:focus-within {
+  border-color: #c7d2fe;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.12), 0 8px 24px rgba(2,6,23,0.06);
 }
 
 .pipeline-editor__row-head {
@@ -107,6 +132,9 @@
   align-items: center;
   gap: 6px;
   color: #344054;
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(2,6,23,0.06);
 }
 
 .pipeline-editor__row-title {

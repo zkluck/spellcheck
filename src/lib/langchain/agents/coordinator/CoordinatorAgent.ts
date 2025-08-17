@@ -1,24 +1,12 @@
-import { AgentResponse } from '@/types/agent';
+import type { AgentResponseOutput as AgentResponse } from '@/types/schemas';
 import { ErrorItem } from '@/types/error';
 import { BasicErrorAgent } from '@/lib/langchain/agents/basic/BasicErrorAgent';
 import { mergeErrors } from '@/lib/langchain/merge';
 import { logger } from '@/lib/logger';
 import { CoordinatorAgentInputSchema } from '@/types/schemas';
 import type { z } from 'zod';
-import { ReviewerAgent } from '@/lib/langchain/agents/reviewer/ReviewerAgent';
 import { config } from '@/lib/config';
-import type { AgentInputWithPrevious, ReviewerInput } from '@/types/schemas';
-
-function summarizeItems(items: ErrorItem[] | undefined) {
-  if (!items) {
-    return { count: 0, types: {} };
-  }
-  const types = items.reduce((acc, item) => {
-    acc[item.type] = (acc[item.type] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-  return { count: items.length, types };
-}
+import type { AgentInputWithPrevious } from '@/types/schemas';
 
 type IndexMapFn = (i: number) => number;
 
@@ -33,11 +21,9 @@ type StreamCallback = (chunk: { agent: string; response: AgentResponse }) => voi
  */
 export class CoordinatorAgent {
   private basicErrorAgent: BasicErrorAgent;
-  private reviewerAgent: ReviewerAgent;
 
   constructor() {
     this.basicErrorAgent = new BasicErrorAgent();
-    this.reviewerAgent = new ReviewerAgent();
   }
 
   async call(
@@ -86,9 +72,8 @@ export class CoordinatorAgent {
       return { count: list.length, types, ...(examples ? { examples } : {}) };
     }
     // 简化：使用 pipeline 控制顺序与次数（已去除 fluent 节点）
-    const pipeline: Array<{ agent: 'basic' | 'reviewer'; runs: number }> = (config.langchain.workflow as any).pipeline ?? [
+    const pipeline: Array<{ agent: 'basic'; runs: number }> = config.langchain.workflow.pipeline ?? [
       { agent: 'basic', runs: 1 },
-      { agent: 'reviewer', runs: 1 },
     ];
 
     // 配置一致性提示（不强制报错，仅记录）
@@ -138,7 +123,7 @@ export class CoordinatorAgent {
             };
             // 依据 enabledTypes 过滤，仅保留启用的类型
             const allowed = new Set(enabledTypes);
-            const filteredResult = (normalizedBasic.result ?? []).filter(it => allowed.has(it.type as any));
+            const filteredResult = (normalizedBasic.result ?? []).filter(it => allowed.has(it.type));
             const filteredBasic: AgentResponse = { ...normalizedBasic, result: filteredResult };
             if (streamCallback) streamCallback({ agent: 'basic', response: filteredBasic });
             allResults.push(filteredBasic);
@@ -151,52 +136,6 @@ export class CoordinatorAgent {
             recomputePatched();
           } catch (e) {
             logger.warn('agent.failed', { reqId: context?.reqId, agent: 'basic', reason: (e as Error)?.message });
-          }
-        }
-      } else if (step.agent === 'reviewer') {
-        for (let i = 0; i < runs; i++) {
-          try {
-            const candidateList: ErrorItem[] = allResults.flatMap(r => r.result ?? []);
-            const candidateById = new Map<string, ErrorItem>(candidateList.map((c) => [c.id, c]));
-            const reviewerRun = i + 1;
-            const reviewerInput: ReviewerInput = {
-              text,
-              candidates: candidateList.map((c) => ({ id: c.id, text: c.text, start: c.start, end: c.end, suggestion: c.suggestion, type: c.type, explanation: c.explanation ?? '' })),
-            };
-            const reviewRes = await this.reviewerAgent.call(reviewerInput, signal);
-
-            let finalResult: ErrorItem[] = reviewRes.result ?? [];
-            if (reviewRes.result && reviewRes.decisions) {
-              const acceptedIds = new Set(reviewRes.decisions.filter(d => d.status !== 'reject').map(d => d.id));
-              finalResult = reviewRes.result.filter(item => acceptedIds.has(item.id));
-            }
-
-            if (streamCallback) {
-              streamCallback({ agent: 'reviewer', response: { ...reviewRes, result: finalResult } });
-            }
-
-            logger.info('agent.reviewer.run.summary', { reqId: context?.reqId, run: reviewerRun, ...summarizeItems(finalResult) });
-            if (reviewRes.error) {
-              logger.warn('agent.reviewer.run.error', { reqId: context?.reqId, run: reviewerRun, error: reviewRes.error });
-            }
-
-            const refinedOnce = finalResult.map((it) => {
-              const src = sourceById.get(it.id);
-              const base = candidateById.get(it.id);
-              const mergedMeta = {
-                ...(base?.metadata ?? {}),
-                ...(it.metadata ?? {}),
-                ...(src ? { source: src } : {}),
-              } as any;
-              // 合并时以审阅后的结构为准，同时尽量保留原候选的有用元数据（如 originalLLM）
-              return { ...(base ?? {}), ...it, metadata: mergedMeta } as ErrorItem;
-            });
-
-            // Reviewer 为最终裁决：用审阅后的结果替换之前的候选，避免“审阅前 + 审阅后”双重混入
-            allResults.length = 0;
-            allResults.push({ result: refinedOnce });
-          } catch (e) {
-            logger.warn('agent.failed', { reqId: context?.reqId, agent: 'reviewer', reason: (e as Error)?.message });
           }
         }
       }

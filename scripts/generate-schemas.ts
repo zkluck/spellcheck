@@ -9,9 +9,6 @@ import {
   CoordinatorAgentInputSchema,
   AgentPreviousSchema,
   AgentInputWithPreviousSchema,
-  ReviewerCandidateSchema,
-  ReviewerInputSchema,
-  ReviewDecisionSchema,
   AgentResponseSchema,
 } from '../src/types/schemas';
 import { ErrorItemSchema } from '../src/types/error';
@@ -26,9 +23,6 @@ const entries: Array<[string, any]> = [
   ['CoordinatorAgentInput', CoordinatorAgentInputSchema],
   ['AgentPrevious', AgentPreviousSchema],
   ['AgentInputWithPrevious', AgentInputWithPreviousSchema],
-  ['ReviewerCandidate', ReviewerCandidateSchema],
-  ['ReviewerInput', ReviewerInputSchema],
-  ['ReviewDecision', ReviewDecisionSchema],
   ['ErrorItem', ErrorItemSchema],
   ['AgentResponse', AgentResponseSchema],
 ];

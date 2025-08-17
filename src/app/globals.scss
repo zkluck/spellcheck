@@ -44,6 +44,8 @@ a {
   --text-secondary: var(--color-text-secondary);
   --border-color: var(--color-border);
   --background-color: var(--color-bg);
+  /* Navbar height used for layout calculations */
+  --navbar-h: 56px;
 }
 
 /* 屏幕阅读器可见，仅视觉隐藏 */

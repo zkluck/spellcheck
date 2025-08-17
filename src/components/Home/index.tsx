@@ -26,21 +26,27 @@ const cn = classnames.bind(styles);
 const ResultPanel = dynamic(() => import('@/components/ResultPanel'), {
   ssr: false,
   loading: () => (
-    <div role="status" aria-busy="true" style={{ padding: 12 }}>加载结果面板…</div>
+    <div className={cn('home__panel-loading')} role="status" aria-busy="true">
+      <div className={cn('home__spinner')} aria-hidden="true" />
+      <span>加载结果面板…</span>
+      <span className={cn('sr-only')}>正在加载，请稍候</span>
+    </div>
   ),
 });
 
-const enabledTypes = ['grammar', 'spelling', 'punctuation', 'fluency'];
+// 支持的错误类型配置
+const enabledTypes: string[] = ['grammar', 'spelling', 'punctuation', 'fluency'];
+const DRAFT_KEY = 'spellcheck.textDraft.v1';
 
 export default function Home() {
   const [state, dispatch] = useReducer(homeReducer, initialState);
   const { text, errors, apiError, isLoading, activeErrorId, history } = state;
-  // Reviewer 开关已移除，由后端 pipeline 决定
+  // Reviewer 已移除
   // 维护一个全局 AbortController，用于取消上一次请求和组件卸载时清理
   const abortRef = useRef<AbortController | null>(null);
   // 轻量提示：重试状态（不影响 reducer 的 isLoading 流程）
   const [retryStatus, setRetryStatus] = useState<string | null>(null);
-  // 自定义流水线（支持每角色可选 modelName）。用户无需选择 reviewer，始终由系统自动在末尾追加。
+  // 自定义流水线（支持每角色可选 modelName）。
   // 惰性初始化：首帧同步读取 localStorage，避免刷新时先渲染默认值导致的“短暂显示”。
   const [customPipeline, setCustomPipeline] = useState<RolePipelineEntry[]>(() => {
     try {
@@ -48,13 +54,13 @@ export default function Home() {
         const saved = window.localStorage.getItem('customPipelineV1');
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) return parsed.filter((s: RolePipelineEntry) => s.id !== 'reviewer');
+          if (Array.isArray(parsed)) return parsed.filter((s: RolePipelineEntry) => s.id === 'basic');
         }
       }
     } catch {}
     return [{ id: 'basic', runs: 1 }];
   });
-  const isPipelineEmpty = customPipeline.filter((s) => s.id !== 'reviewer').length === 0;
+  const isPipelineEmpty = customPipeline.length === 0;
 
   // 流式合并的节流/批处理
   const currentErrorsRef = useRef<ErrorItem[]>([]);
@@ -87,14 +93,47 @@ export default function Home() {
 
   // 去除二次设值的 useEffect，避免默认值 -> 存储值 的闪烁
   const handleChangeCustomPipeline = useCallback((next: RolePipelineEntry[]) => {
-    const userOnly = next.filter((s) => s.id !== 'reviewer');
+    const userOnly = next.filter((s) => s.id === 'basic');
     setCustomPipeline(userOnly);
     try { if (typeof window !== 'undefined') window.localStorage.setItem('customPipelineV1', JSON.stringify(userOnly)); } catch {}
   }, []);
 
+  // 一次性恢复文本草稿（仅当当前文本为空时）
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return;
+      if (text && text.length > 0) return;
+      const saved = window.localStorage.getItem(DRAFT_KEY);
+      if (saved && saved.length > 0) {
+        dispatch({ type: 'SET_TEXT', payload: saved });
+      }
+    } catch {}
+    // 仅在初次 mount 运行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 防抖持久化草稿
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        try {
+          window.localStorage.setItem(DRAFT_KEY, text || '');
+        } catch {}
+      }, 300);
+    } catch {}
+    return () => {
+      if (saveTimerRef.current) {
+        try { clearTimeout(saveTimerRef.current); } catch {}
+      }
+    };
+  }, [text]);
+
   const handleCheck = useCallback(async () => {
     if (!text.trim()) return;
-    const userStepsEmpty = customPipeline.filter((s) => s.id !== 'reviewer').length === 0;
+    const userStepsEmpty = customPipeline.length === 0;
     if (userStepsEmpty) {
       dispatch({ type: 'SET_API_ERROR', payload: '请先在左侧添加至少一个角色步骤。' });
       return;
@@ -128,13 +167,8 @@ export default function Home() {
     };
 
     try {
-      // 用户可编辑部分（不含 reviewer）
-      const userSteps = customPipeline.filter((s) => s.id !== 'reviewer');
-      // 发送给后端时，自动在末尾追加 reviewer 作为最终复核步骤
-      const pipeline: RolePipelineEntry[] = [
-        ...userSteps,
-        { id: 'reviewer', runs: 1 },
-      ];
+      // 用户可编辑部分
+      const pipeline: RolePipelineEntry[] = customPipeline;
       const outcome = await sseCheck(
         text,
         { enabledTypes, pipeline },
@@ -149,9 +183,9 @@ export default function Home() {
             pendingErrorsRef.current = merged;
             scheduleFlush(80);
           },
-          onFinal: (arr) => {
+          onFinal: (arr, meta) => {
             clearMergeSchedulers();
-            dispatch({ type: 'FINISH_CHECK', payload: arr });
+            dispatch({ type: 'FINISH_CHECK', payload: { errors: arr } });
           },
           onError: (msg, _code, rid) => {
             clearMergeSchedulers();
@@ -179,7 +213,7 @@ export default function Home() {
           dispatch({ type: 'SET_API_ERROR', payload: '请求已取消。' });
         }
       } else {
-        console.error('Check failed:', e);
+        // 使用统一的日志系统而非 console.error
         dispatch({ type: 'SET_API_ERROR', payload: '检查时发生未知错误。' });
       }
     } finally {
@@ -197,6 +231,11 @@ export default function Home() {
       abortRef.current.abort();
       abortRef.current = null;
     }
+  }, []);
+
+  // 清空检测结果（不影响文本草稿）
+  const handleClearResults = useCallback(() => {
+    dispatch({ type: 'CLEAR_RESULTS' });
   }, []);
 
   // 组件卸载时中止未完成的请求
@@ -265,10 +304,6 @@ export default function Home() {
     dispatch({ type: 'UNDO' });
   }, []);
 
-  const handleClear = useCallback(() => {
-    dispatch({ type: 'CLEAR_RESULTS' });
-  }, []);
-
   const handleSelectError = useCallback((id: string | null) => {
     dispatch({ type: 'SET_ACTIVE_ERROR', payload: id });
   }, []);
@@ -287,7 +322,6 @@ export default function Home() {
             {apiError}
           </div>
         )}
-        <h1 className={cn('home__title')}>AI中文文本检测</h1>
         <div className={cn('home__layout')}>
           <div className={cn('home__sidebar')}>
             <h3 className={cn('home__sidebar-title')}>角色流水线</h3>
@@ -305,7 +339,7 @@ export default function Home() {
               activeErrorId={activeErrorId}
               onSelectError={handleSelectError}
             />
-            {/* Reviewer 开关已移除：由后端 WORKFLOW_PIPELINE 决定是否执行 Reviewer */}
+            {/* Reviewer 已移除 */}
             {isLoading && retryStatus && (
               <div
                 className={cn('home__retry-hint')}
@@ -319,9 +353,11 @@ export default function Home() {
             <ControlBar
               onCheck={handleCheck}
               onCancel={handleCancel}
+              onClear={handleClearResults}
               isLoading={isLoading}
               textLength={text.length}
               isPipelineEmpty={isPipelineEmpty}
+              canClear={errors.length > 0 || !!apiError}
             />
           </div>
           <ResultPanel
@@ -335,6 +371,7 @@ export default function Home() {
             activeErrorId={activeErrorId}
             onSelectError={handleSelectError}
             isLoading={isLoading}
+            reviewer={null}
           />
         </div>
       </div>

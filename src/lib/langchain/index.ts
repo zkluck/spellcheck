@@ -1,6 +1,7 @@
 import { CoordinatorAgent } from '@/lib/langchain/agents/coordinator/CoordinatorAgent';
 import { ErrorItem } from '@/types/error';
-import { AnalyzeOptions, AgentResponse } from '@/types/agent';
+import { AnalyzeOptions } from '@/types/agent';
+import type { AgentResponseOutput as AgentResponse } from '@/types/schemas';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
 

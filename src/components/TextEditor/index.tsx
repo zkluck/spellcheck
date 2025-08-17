@@ -80,8 +80,15 @@ export default function TextEditor({
   }, [value, errors, activeErrorId, onSelectError]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
-    const top = (e.target as HTMLTextAreaElement).scrollTop;
+    const textarea = e.target as HTMLTextAreaElement;
+    const top = textarea.scrollTop;
+    const left = textarea.scrollLeft;
     setScrollTop(top);
+    
+    // 立即同步背景层滚动
+    if (highlightsRef.current) {
+      highlightsRef.current.style.transform = `translate(-${left}px, -${top}px)`;
+    }
   }, []);
 
   // 当选中错误变化时，自动滚动定位
@@ -98,34 +105,26 @@ export default function TextEditor({
     }
   }, [activeErrorId]);
 
+  // 动态计算滚动条宽度并同步
   useEffect(() => {
-    const calculateScrollbarWidth = () => {
-      if (editorRef.current) {
-        // 创建一个临时元素来精确测量滚动条宽度
-        const outer = document.createElement('div');
-        outer.style.visibility = 'hidden';
-        outer.style.overflow = 'scroll';
-        // @ts-ignore - msOverflowStyle is needed for WinJS apps
-        outer.style.msOverflowStyle = 'scrollbar';
-        document.body.appendChild(outer);
+    const textarea = textareaRef.current;
+    const backdrop = highlightsRef.current?.parentElement;
+    if (!textarea || !backdrop) return;
 
-        const inner = document.createElement('div');
-        outer.appendChild(inner);
-
-        const scrollbarWidth = outer.offsetWidth - inner.offsetWidth;
-        document.body.removeChild(outer);
-
-        editorRef.current.style.setProperty('--scrollbar-width', `${scrollbarWidth}px`);
-      }
+    const updateScrollbarWidth = () => {
+      // 计算实际滚动条宽度
+      const scrollbarWidth = textarea.offsetWidth - textarea.clientWidth;
+      backdrop.style.setProperty('--scrollbar-width', `${scrollbarWidth}px`);
     };
 
-    calculateScrollbarWidth();
-    window.addEventListener('resize', calculateScrollbarWidth);
+    updateScrollbarWidth();
+    
+    // 监听内容变化重新计算
+    const resizeObserver = new ResizeObserver(updateScrollbarWidth);
+    resizeObserver.observe(textarea);
 
-    return () => {
-      window.removeEventListener('resize', calculateScrollbarWidth);
-    };
-  }, []);
+    return () => resizeObserver.disconnect();
+  }, [value]);
 
   return (
     <div className={cn('text-editor')} ref={editorRef}>
@@ -143,7 +142,6 @@ export default function TextEditor({
           <div
             className={cn('text-editor__highlights')}
             ref={highlightsRef}
-            style={{ transform: `translateY(-${scrollTop}px)` }}
           >
             {renderWithHighlight}
           </div>

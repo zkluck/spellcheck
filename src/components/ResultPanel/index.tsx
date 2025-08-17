@@ -10,6 +10,7 @@ import styles from './index.module.scss';
 const cn = classnames.bind(styles);
 
 const PREFS_KEY = 'spellcheck.resultPanel.prefs';
+const VIRTUAL_ITEM_ESTIMATE_HEIGHT = 160; // 虚拟滚动项估算高度
 
 // 平台判断：用于快捷键提示与组合键判定
 const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -25,6 +26,7 @@ interface ResultPanelProps {
   activeErrorId: string | null;
   onSelectError: (id: string | null) => void;
   isLoading: boolean;
+  reviewer?: any | null;
 }
 
 function ResultPanel({
@@ -38,6 +40,7 @@ function ResultPanel({
   activeErrorId,
   onSelectError,
   isLoading,
+  reviewer = null,
 }: ResultPanelProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [overflowIds, setOverflowIds] = useState<Set<string>>(new Set());
@@ -135,7 +138,7 @@ function ResultPanel({
     count: viewErrors.length,
     getScrollElement: () => panelRef.current,
     getItemKey: (index) => viewErrors[index]?.id ?? String(index),
-    estimateSize: () => 160, // 更接近真实均值，减少首帧跳动；实际由 measureElement 矫正
+    estimateSize: () => VIRTUAL_ITEM_ESTIMATE_HEIGHT, // 更接近真实均值，减少首帧跳动；实际由 measureElement 矫正
     overscan: 8,
     measureElement: (el: Element) => (el as HTMLElement).getBoundingClientRect().height,
   });
@@ -599,6 +602,39 @@ function ResultPanel({
     showToast('已导出 CSV');
   }, [getExportList, toCSV, downloadBlob, showToast]);
 
+  // 审阅器状态 Banner（非空列表时显示在头部下方）
+  const renderReviewerBanner = useCallback(() => {
+    if (!reviewer) return null;
+    let variant: 'info' | 'warning' | 'error' = 'info';
+    let title = '';
+    let desc: string | null = null;
+    const c = reviewer.counts;
+    const countsText = c ? `（通过 ${c.accept ?? 0}，修改 ${c.modify ?? 0}，驳回 ${c.reject ?? 0}）` : '';
+    if (reviewer.status === 'error') {
+      variant = 'error';
+      title = '审阅器运行失败';
+      const fb = reviewer.fallbackUsed ? '已回退至基础结果。' : '';
+      desc = [fb, reviewer.error || ''].filter(Boolean).join(' ');
+    } else if (reviewer.ran && reviewer.status === 'empty') {
+      variant = 'warning';
+      title = '审阅器已驳回所有候选';
+      desc = countsText || null;
+    } else if (reviewer.ran) {
+      variant = reviewer.fallbackUsed ? 'warning' : 'info';
+      title = reviewer.fallbackUsed ? '审阅器已回退至基础结果' : '已完成审阅裁决';
+      desc = countsText || null;
+    } else {
+      // skipped
+      title = '已跳过审阅器';
+    }
+    return (
+      <div className={cn('result-panel__banner', `result-panel__banner--${variant}`)} role="status" aria-live="polite">
+        <div className={cn('result-panel__banner-title')}>{title}</div>
+        {desc && <div className={cn('result-panel__banner-desc')}>{desc}</div>}
+      </div>
+    );
+  }, [reviewer]);
+
   if (isLoading) {
     return (
       <div className={cn('result-panel', 'result-panel--loading')}>
@@ -609,11 +645,34 @@ function ResultPanel({
   }
 
   if (errors.length === 0) {
+    const isReviewerError = reviewer?.status === 'error';
+    const isReviewerEmpty = reviewer?.ran && reviewer?.status === 'empty';
+    const fallback = reviewer?.fallbackUsed;
+    const counts = reviewer?.counts;
     return (
       <div className={cn('result-panel', 'result-panel--empty')}>
         <div className={cn('result-panel__empty-icon')}>✓</div>
-        <h3>暂无检测结果</h3>
-        <p>输入文本后点击“开始检测”</p>
+        {isReviewerError ? (
+          <>
+            <h3>审阅器运行失败</h3>
+            <p>{fallback ? '已回退至基础结果，但无可展示错误。' : '处理失败，且无可展示错误。'}</p>
+            {reviewer?.error && <p style={{ color: '#a61b1b' }}>{reviewer.error}</p>}
+          </>
+        ) : isReviewerEmpty ? (
+          <>
+            <h3>已审阅：全部候选被驳回</h3>
+            {counts ? (
+              <p>通过 {counts.accept ?? 0}，修改 {counts.modify ?? 0}，驳回 {counts.reject ?? 0}</p>
+            ) : (
+              <p>暂无可展示错误</p>
+            )}
+          </>
+        ) : (
+          <>
+            <h3>暂无检测结果</h3>
+            <p>输入文本后点击“开始检测”</p>
+          </>
+        )}
       </div>
     );
   }
@@ -721,6 +780,7 @@ function ResultPanel({
           </button>
         </div>
       </div>
+      {renderReviewerBanner()}
       {toastMsg && (
         <div className={cn('result-panel__toast')} aria-live="polite" role="status">{toastMsg}</div>
       )}
