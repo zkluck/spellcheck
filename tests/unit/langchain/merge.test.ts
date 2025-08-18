@@ -29,7 +29,7 @@ describe('mergeErrors', () => {
     expect(res[0].id).toBe('a');
   });
 
-  it('resolves overlaps by keeping longer range', () => {
+  it('resolves overlaps by keeping shorter range', () => {
     const a = e({ id: 'a', start: 0, end: 2, text: '今天' });
     const b = e({ id: 'b', start: 0, end: 3, text: '今天天' });
     const res = mergeErrors(text, [[a], [b]]);
