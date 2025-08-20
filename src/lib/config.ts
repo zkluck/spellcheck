@@ -54,7 +54,6 @@ export const config = {
      */
     ruleEngine: {
       enabled: getEnvBool('RULE_ENGINE_ENABLED', true),
-      priority: getEnvNumber('RULE_ENGINE_PRIORITY', 1.0) // 规则引擎结果优先级权重
     }
   },
   /**
@@ -154,17 +153,6 @@ export const config = {
         },
       },
     },
-  },
-  /**
-   * 日志相关配置
-   */
-  logging: {
-    /**
-     * 是否允许在日志中输出示例内容（如文本片段、建议等）。
-     * 默认: false
-     * 环境变量: LOG_ENABLE_PAYLOAD
-     */
-    enablePayload: getEnvBool('LOG_ENABLE_PAYLOAD', false),
   },
 };
 
