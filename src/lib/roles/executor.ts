@@ -2,6 +2,8 @@
  * 角色流水线执行器：顺序执行给定的角色序列，支持多次运行与简单流式事件
  */
 import { getRole } from './registry';
+import { applyErrorItems } from '@/lib/text/patch';
+import type { ErrorItem } from '@/types/error';
 import type {
   AnalysisInput,
   ExecutorHooks,
@@ -12,6 +14,14 @@ import type {
   SSEEvent,
 } from './types';
 
+// 类型守卫：判断一个对象是否为 AsyncGenerator
+function isAsyncGenerator<T = unknown>(obj: unknown): obj is AsyncGenerator<T> {
+  if (typeof obj !== 'object' || obj === null) return false;
+  const maybe = obj as { [Symbol.asyncIterator]?: unknown };
+  return typeof maybe[Symbol.asyncIterator] === 'function';
+}
+
+
 export async function* runPipeline(opts: {
   roles: PipelineEntry[];
   input: AnalysisInput;
@@ -21,8 +31,8 @@ export async function* runPipeline(opts: {
 }): AsyncGenerator<SSEEvent> {
   const { roles, input, signal, hooks, metadata } = opts;
 
-  // 累积前置产物，供下游角色（如 reviewer）参考
-  let previousItems: any[] = [];
+  // 当前被分析/修复的文本，默认从入口文本开始
+  let currentText: string = input.text;
 
   for (const entry of roles) {
     const { id, runs } = entry;
@@ -39,36 +49,44 @@ export async function* runPipeline(opts: {
 
       const ctx: RoleContext = {
         signal,
-        metadata: { previousItems, runIndex: i, ...(metadata || {}), modelName: entry.modelName },
+        metadata: { ...(metadata || {}), runIndex: i, modelName: entry.modelName },
       };
 
       try {
-        const out = role.run(input, ctx) as any;
-        if (out && typeof out[Symbol.asyncIterator] === 'function') {
-          // 流式适配
-          for await (const ev of out as AsyncGenerator<RoleChunk | RoleFinal>) {
-            if ((ev as RoleChunk).type === 'chunk') {
-              hooks?.onChunk?.(role.id, ev as RoleChunk);
-              yield { roleId: role.id, stage: 'chunk', payload: (ev as RoleChunk).data };
-            } else if ((ev as RoleFinal).type === 'final') {
-              hooks?.onFinal?.(role.id, ev as RoleFinal);
-              const finalData: any = (ev as RoleFinal).data;
-              // 约定：最终结果若包含 items 则纳入 previousItems
+        // 关键：为下一个/本次角色提供已修复的最新文本
+        const out = role.run({ ...input, text: currentText }, ctx);
+        if (isAsyncGenerator<RoleChunk>(out)) {
+          // 流式适配：手动迭代以拿到最终返回值
+          while (true) {
+            const r = await out.next();
+            if (r.done) {
+              const final = r.value as RoleFinal;
+              hooks?.onFinal?.(role.id, final);
+              const finalData = final?.data as unknown as { items?: unknown };
               if (finalData && Array.isArray(finalData.items)) {
-                previousItems = finalData.items;
+                const patched = applyErrorItems(currentText, finalData.items as ErrorItem[]);
+                currentText = patched.patchedText;
               }
-              yield { roleId: role.id, stage: 'final', payload: finalData };
+              // 透传本轮修复后的全文
+              yield { roleId: role.id, stage: 'final', payload: { ...(final.data as Record<string, unknown>), patchedText: currentText } };
+              break;
+            } else {
+              const ev = r.value as RoleChunk;
+              hooks?.onChunk?.(role.id, ev);
+              yield { roleId: role.id, stage: 'chunk', payload: ev.data };
             }
           }
         } else {
           // 非流式（Promise）
           const final = (await out) as RoleFinal;
           hooks?.onFinal?.(role.id, final);
-          const finalData: any = final?.data;
+          const finalData = final?.data as unknown as { items?: unknown };
           if (finalData && Array.isArray(finalData.items)) {
-            previousItems = finalData.items;
+            const patched = applyErrorItems(currentText, finalData.items as ErrorItem[]);
+            currentText = patched.patchedText;
           }
-          yield { roleId: role.id, stage: 'final', payload: finalData };
+          // 透传本轮修复后的全文
+          yield { roleId: role.id, stage: 'final', payload: { ...(final.data as Record<string, unknown>), patchedText: currentText } };
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

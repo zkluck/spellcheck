@@ -206,6 +206,8 @@ export async function POST(request: Request) {
       let reviewerRan = false;
       let reviewerError: string | undefined;
       let decisionsStat = { accepted: 0, rejected: 0, modified: 0 };
+      // 记录最后一次角色完成后的全文（修复后）
+      let finalPatchedText: string | undefined;
 
       try {
         for await (const ev of runPipeline({
@@ -218,6 +220,9 @@ export async function POST(request: Request) {
             const payload: any = (ev as any).payload || {};
             const items = Array.isArray(payload.items) ? payload.items : [];
             const sanitized = sanitizeErrors(items);
+            if (typeof payload.patchedText === 'string') {
+              finalPatchedText = payload.patchedText;
+            }
             if (ev.roleId === 'basic') {
               basicItems = sanitized;
             } else if (ev.roleId === 'reviewer') {
@@ -263,6 +268,7 @@ export async function POST(request: Request) {
 
       const body = {
         errors: finalErrors,
+        ...(config.langchain.agents.basic.returnPatchedText ? { patchedText: finalPatchedText ?? text } : {}),
         meta: {
           elapsedMs,
           enabledTypes: options.enabledTypes,
@@ -337,6 +343,7 @@ export async function POST(request: Request) {
             log('pipeline.selected', { source, roles: roleEntries });
           } catch {}
           let lastItems: ErrorItem[] = [];
+          let lastPatchedText: string | undefined;
           // 跟踪 basic / reviewer 结果用于最终回退
           let basicItems: ErrorItem[] = [];
           let reviewerItems: ErrorItem[] = [];
@@ -358,12 +365,17 @@ export async function POST(request: Request) {
                 : Array.isArray((ev as any).payload)
                 ? (ev as any).payload
                 : [];
-              const data = { type: 'chunk', agent: ev.roleId, errors: sanitizeErrors(items) };
+              // 附带步骤索引（若执行器提供），用于前端聚合分组
+              const runIndex: number | undefined = (ev as any)?.runIndex;
+              const data = { type: 'chunk', agent: ev.roleId, errors: sanitizeErrors(items), ...(typeof runIndex === 'number' ? { runIndex } : {}) };
               safeEnqueue(data);
             } else if (ev.stage === 'final') {
               const payload: any = (ev as any).payload || {};
               const items = Array.isArray(payload.items) ? payload.items : [];
               lastItems = sanitizeErrors(items);
+              if (typeof payload.patchedText === 'string') {
+                lastPatchedText = payload.patchedText;
+              }
               // 跟踪 basic/reviewer
               if (ev.roleId === 'basic') {
                 basicItems = lastItems;
@@ -383,8 +395,9 @@ export async function POST(request: Request) {
                 }
                 if (payload.error) reviewerError = String(payload.error);
               }
-              // 向后兼容：每个角色最终产物也以 chunk 形式发送
-              const data = { type: 'chunk', agent: ev.roleId, errors: lastItems };
+              // 向后兼容：每个角色最终产物也以 chunk 形式发送，带 runIndex 标记
+              const runIndex: number | undefined = (ev as any)?.runIndex;
+              const data = { type: 'chunk', agent: ev.roleId, errors: lastItems, ...(typeof runIndex === 'number' ? { runIndex, isFinalOfRun: true } : { isFinalOfRun: true }) } as any;
               safeEnqueue(data);
             } else if (ev.stage === 'error') {
               safeEnqueue({ type: 'warning', agent: ev.roleId, message: ev.error });
@@ -419,6 +432,7 @@ export async function POST(request: Request) {
                 ...(reviewerError ? { error: reviewerError } : {}),
               },
             },
+            ...(config.langchain.agents.basic.returnPatchedText ? { patchedText: lastPatchedText ?? text } : {}),
           } as any;
           safeEnqueue(finalData);
           log('sse.final', { elapsedMs, errorCount: Array.isArray(finalData.errors) ? finalData.errors.length : 0, reviewer: finalData.meta.reviewer });

@@ -54,6 +54,19 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
     groups.set(key, arr);
   }
 
+  // 提取来源（与前端显示逻辑一致 but 本地实现，避免耦合 UI 文件）
+  const getSources = (e: ErrorItem): string[] => {
+    // 说明：ErrorItem.metadata 在类型层使用 z.record(z.any()) 承载动态后端字段，
+    // 因此此处通过 (e as any) 访问以避免过度约束；我们仅读取通用 keys（sources/source）。
+    const meta: Record<string, unknown> | undefined = (e as any).metadata;
+    const s: unknown = meta && (meta as any).sources != null
+      ? (meta as any).sources
+      : (meta && (meta as any).source != null ? (meta as any).source : (e as any).source);
+    if (Array.isArray(s)) return s.map((x) => String(x).toLowerCase());
+    if (s != null) return [String(s).toLowerCase()];
+    return [];
+  };
+
   const pickBest = (arr: ErrorItem[]): ErrorItem => {
     // 统一优先级：与 resolveOverlaps 中保持一致（数值越大优先级越高）
     const TYPE_PRIORITY: Record<ErrorItem['type'], number> = {
@@ -65,7 +78,7 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
     const prio = (t: ErrorItem['type']): number => TYPE_PRIORITY[t] ?? 0;
     const explLen = (e: ErrorItem) => (e.explanation?.trim().length ?? 0);
     // 选择：类型优先级 > explanation 长度 > 原顺序
-    return arr.reduce((best, cur) => {
+    const best = arr.reduce((best, cur) => {
       if (!best) return cur;
       if (config.langchain.merge?.confidenceFirst) {
         const cb = getConfidence(cur);
@@ -84,6 +97,15 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
       if (eCur !== eBest) return eCur > eBest ? cur : best;
       return best; // 保持稳定性
     });
+    // 合并同键所有候选的来源，确保“全部”视图保留来源集合用于筛选
+    const union = new Set<string>();
+    for (const x of arr) getSources(x).forEach((s) => union.add(s));
+    if (union.size === 0) return best;
+    const nextMeta: Record<string, unknown> = {
+      ...((best as any).metadata ?? {}),
+      sources: Array.from(union),
+    };
+    return { ...best, metadata: nextMeta } as ErrorItem;
   };
 
   const out: ErrorItem[] = [];

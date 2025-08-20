@@ -115,6 +115,11 @@ export const config = {
          */
         maxOutput: getEnvNumber('BASIC_MAX_OUTPUT', 200),
         /**
+         * 是否在 API 输出中返回修复后的全文 patchedText
+         * 环境变量：BASIC_RETURN_PATCHED_TEXT（默认 true）
+         */
+        returnPatchedText: getEnvBool('BASIC_RETURN_PATCHED_TEXT', true),
+        /**
          * 是否强制仅保留索引“严格匹配”的项（metadata.locate === 'exact'）
          * 默认 true；环境变量：BASIC_REQUIRE_EXACT_INDEX
          */

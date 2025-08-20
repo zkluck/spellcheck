@@ -7,8 +7,7 @@ import {
   AnalyzeOptionsSchema,
   AnalyzeRequestSchema,
   CoordinatorAgentInputSchema,
-  AgentPreviousSchema,
-  AgentInputWithPreviousSchema,
+  AgentInputSchema,
   AgentResponseSchema,
 } from '../src/types/schemas';
 import { ErrorItemSchema } from '../src/types/error';
@@ -21,8 +20,7 @@ const entries: Array<[string, any]> = [
   ['AnalyzeOptions', AnalyzeOptionsSchema],
   ['AnalyzeRequest', AnalyzeRequestSchema],
   ['CoordinatorAgentInput', CoordinatorAgentInputSchema],
-  ['AgentPrevious', AgentPreviousSchema],
-  ['AgentInputWithPrevious', AgentInputWithPreviousSchema],
+  ['AgentInput', AgentInputSchema],
   ['ErrorItem', ErrorItemSchema],
   ['AgentResponse', AgentResponseSchema],
 ];

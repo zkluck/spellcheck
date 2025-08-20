@@ -19,6 +19,7 @@ import { homeReducer, initialState } from './state';
 import styles from './index.module.scss';
 import { sseCheck } from '@/lib/api/check';
 import type { RolePipelineEntry } from '@/types/schemas';
+import { attachSources } from '@/lib/errors/sourceUtils';
 
 const cn = classnames.bind(styles);
 
@@ -66,6 +67,8 @@ export default function Home() {
   const currentErrorsRef = useRef<ErrorItem[]>([]);
   const pendingErrorsRef = useRef<ErrorItem[] | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 分步（runIndex）临时缓冲：在每个步骤完成（isFinalOfRun）之前，累积该步骤的增量结果
+  const runBuffersRef = useRef<Map<number, ErrorItem[]>>(new Map<number, ErrorItem[]>());
 
   const clearMergeSchedulers = () => {
     try {
@@ -74,6 +77,8 @@ export default function Home() {
     flushTimerRef.current = null;
     pendingErrorsRef.current = null;
   };
+
+  // 来源注入逻辑改为复用共享工具：attachSources(items, agent)
 
   const scheduleFlush = (delay = 80) => {
     if (flushTimerRef.current) return;
@@ -142,9 +147,11 @@ export default function Home() {
     dispatch({ type: 'START_CHECK' });
     setRetryStatus(null);
 
-    // 重置合并与调度器
+    // 重置合并与调度器，并以“当前已有错误”为基线进行新一轮累积
     clearMergeSchedulers();
-    currentErrorsRef.current = [];
+    currentErrorsRef.current = errors;
+    // 重置每个步骤的临时缓冲，确保新一轮检测从空状态开始
+    runBuffersRef.current = new Map<number, ErrorItem[]>();
 
     // 若存在上一请求，先中止
     abortRef.current?.abort();
@@ -174,18 +181,36 @@ export default function Home() {
         { enabledTypes, pipeline },
         controller,
         {
-          onChunk: (arr) => {
-            // 合并到当前快照（节流批量 dispatch）
-            const merged = mergeErrors(text, [
-              currentErrorsRef.current,
-              arr,
-            ]);
-            pendingErrorsRef.current = merged;
+          onChunk: (arr, meta) => {
+            // 0) 基于 agent 注入来源，供 ResultPanel 按“来源”筛选
+            const enriched = attachSources(arr, meta?.agent);
+            // 1) 更新“全部”的合并视图（跨步骤去重合并）——节流批量 dispatch
+            const mergedAll = mergeErrors(text, [currentErrorsRef.current, enriched]);
+            pendingErrorsRef.current = mergedAll;
             scheduleFlush(80);
+
+            // 2) 若带有 runIndex，则将增量结果累积到对应步骤的缓冲
+            const rIdx = typeof meta?.runIndex === 'number' ? meta!.runIndex! : undefined;
+            if (typeof rIdx === 'number') {
+              const prev = runBuffersRef.current.get(rIdx) ?? [];
+              const next = mergeErrors(text, [prev, enriched]);
+              runBuffersRef.current.set(rIdx, next);
+              // 步骤结束：将该步骤的原始最终结果写入 runs，并清空缓冲
+              if (meta?.isFinalOfRun) {
+                dispatch({ type: 'APPEND_RUN', payload: { errors: next, runIndex: rIdx, finishedAt: Date.now() } });
+                runBuffersRef.current.delete(rIdx);
+              }
+            }
           },
           onFinal: (arr, meta) => {
             clearMergeSchedulers();
-            dispatch({ type: 'FINISH_CHECK', payload: { errors: arr } });
+            // 最终再与当前快照合并，确保包含未刷新的 chunk 与先前轮次
+            const enriched = attachSources(arr, (meta && (meta as any).agent) ? String((meta as any).agent) : undefined);
+            const finalMerged = mergeErrors(text, [currentErrorsRef.current, enriched]);
+            currentErrorsRef.current = finalMerged;
+            // 多步骤模式下，各步骤已在 isFinalOfRun 时追加；
+            // 为兼容单步骤/无分步元数据的情况，仍传入 runRaw，reducer 会在 runs 为空时补齐一步
+            dispatch({ type: 'FINISH_CHECK', payload: { errors: finalMerged, runRaw: enriched, finishedAt: Date.now() } });
           },
           onError: (msg, _code, rid) => {
             clearMergeSchedulers();
@@ -223,7 +248,7 @@ export default function Home() {
       }
       clearMergeSchedulers();
     }
-  }, [text, customPipeline]);
+  }, [text, customPipeline, errors]);
 
   // 允许用户手动取消正在进行的检查
   const handleCancel = useCallback(() => {

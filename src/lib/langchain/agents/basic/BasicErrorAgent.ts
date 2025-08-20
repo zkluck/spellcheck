@@ -1,9 +1,9 @@
 import { BaseAgent } from '../base/BaseAgent';
-import { AgentInputWithPrevious, AgentResponseOutput } from '@/types/schemas';
+import { AgentInput, AgentResponseOutput } from '@/types/schemas';
 import { getLLM } from '@/lib/langchain/models/llm-config';
 import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
-import { ErrorItem, ErrorItemSchema } from '@/types/error';
+import { ErrorItem } from '@/types/error';
 import { AgentResponseSchema } from '@/types/schemas';
 import { ruleEngine } from '@/lib/rules/engine';
 import { ResultPostProcessor } from '@/lib/rules/postprocessor';
@@ -224,11 +224,6 @@ const COMBINED_PROMPT = ChatPromptTemplate.fromMessages([
 <TEXT_TO_ANALYZE>
 {text}
 </TEXT_TO_ANALYZE>
-
-参考（若提供）：
-- 上一轮问题 (JSON): {prevIssues}
-- 已修复文本 (供参考): {patchedText}
-- 迭代编号: {runIndex}
 `.trim()
   ],
 ]);
@@ -236,14 +231,14 @@ const COMBINED_PROMPT = ChatPromptTemplate.fromMessages([
 /**
  * BasicErrorAgent 负责检测基础的、客观的错误：拼写、标点、基础语法
  */
-export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
+export class BasicErrorAgent extends BaseAgent<AgentInput> {
   private modelName?: string;
   constructor(opts?: { modelName?: string }) {
     super('BasicErrorAgent');
     this.modelName = opts?.modelName;
   }
 
-  async call(input: AgentInputWithPrevious, signal?: AbortSignal): Promise<AgentResponseOutput> {
+  async call(input: AgentInput, signal?: AbortSignal): Promise<AgentResponseOutput> {
     const llm = getLLM({ modelName: this.modelName });
 
     try {
@@ -255,9 +250,6 @@ export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
       // 然后使用 LLM 检测
       const messages = await COMBINED_PROMPT.formatMessages({
         text: input.text,
-        prevIssues: input.previous?.issuesJson ?? '',
-        patchedText: input.previous?.patchedText ?? '',
-        runIndex: String(input.previous?.runIndex ?? ''),
         basicExamples: BASIC_ERROR_EXAMPLES,
         fluentExamples: FLUENT_EXAMPLES,
       } as any);
@@ -268,11 +260,6 @@ export class BasicErrorAgent extends BaseAgent<AgentInputWithPrevious> {
           parentSignal: signal,
           logFields: {
             text: input.text,
-            previous: {
-              issuesJson: input.previous?.issuesJson ?? '',
-              patchedText: input.previous?.patchedText ?? '',
-              runIndex: input.previous?.runIndex,
-            },
           },
         }
       );

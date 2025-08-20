@@ -34,8 +34,10 @@
 
 ### 快捷键
 - `Ctrl + Enter`：开始检测
-- `Tab`：在检测结果间切换
+- `↑ / ↓`：在检测结果间切换上一条/下一条
 - `Enter`：应用当前选中的修正建议
+- `Delete / Backspace`：忽略当前选中的修正建议
+- `Ctrl + Alt + Z`（Windows / Linux）或 `⌘ + ⌥ + Z`（macOS）：撤回修改
 
 ## 🚀 快速开始
 
