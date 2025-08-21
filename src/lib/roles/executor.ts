@@ -1,5 +1,7 @@
 /*
  * 角色流水线执行器：顺序执行给定的角色序列，支持多次运行与简单流式事件
+ * 注意：每一次角色运行（包括多轮次与跨角色）都基于最初的入口文本进行修复，
+ * 不会把上一轮或上一个角色的修复结果串联为下一次运行的输入。
  */
 import { getRole } from './registry';
 import { applyErrorItems } from '@/lib/text/patch';
@@ -31,8 +33,8 @@ export async function* runPipeline(opts: {
 }): AsyncGenerator<SSEEvent> {
   const { roles, input, signal, hooks, metadata } = opts;
 
-  // 当前被分析/修复的文本，默认从入口文本开始
-  let currentText: string = input.text;
+  // 基础文本：每次运行都基于最初的入口文本，避免跨轮/跨角色串改
+  const baseText: string = input.text;
 
   for (const entry of roles) {
     const { id, runs } = entry;
@@ -53,8 +55,8 @@ export async function* runPipeline(opts: {
       };
 
       try {
-        // 关键：为下一个/本次角色提供已修复的最新文本
-        const out = role.run({ ...input, text: currentText }, ctx);
+        // 每次运行都使用最初的基础文本，避免把上一次修复结果作为下一次输入
+        const out = role.run({ ...input, text: baseText }, ctx);
         if (isAsyncGenerator<RoleChunk>(out)) {
           // 流式适配：手动迭代以拿到最终返回值
           while (true) {
@@ -63,12 +65,14 @@ export async function* runPipeline(opts: {
               const final = r.value as RoleFinal;
               hooks?.onFinal?.(role.id, final);
               const finalData = final?.data as unknown as { items?: unknown };
+              // 基于基础文本计算本轮修复后的全文，但不串联到后续运行
+              let patchedTextForThisRun: string = baseText;
               if (finalData && Array.isArray(finalData.items)) {
-                const patched = applyErrorItems(currentText, finalData.items as ErrorItem[]);
-                currentText = patched.patchedText;
+                const patched = applyErrorItems(baseText, finalData.items as ErrorItem[]);
+                patchedTextForThisRun = patched.patchedText;
               }
-              // 透传本轮修复后的全文
-              yield { roleId: role.id, stage: 'final', payload: { ...(final.data as Record<string, unknown>), patchedText: currentText } };
+              // 透传本轮修复后的全文（仅用于展示/最终返回），不影响后续运行的输入
+              yield { roleId: role.id, stage: 'final', payload: { ...(final.data as Record<string, unknown>), patchedText: patchedTextForThisRun } };
               break;
             } else {
               const ev = r.value as RoleChunk;
@@ -81,12 +85,14 @@ export async function* runPipeline(opts: {
           const final = (await out) as RoleFinal;
           hooks?.onFinal?.(role.id, final);
           const finalData = final?.data as unknown as { items?: unknown };
+          // 基于基础文本计算本轮修复后的全文，但不串联到后续运行
+          let patchedTextForThisRun: string = baseText;
           if (finalData && Array.isArray(finalData.items)) {
-            const patched = applyErrorItems(currentText, finalData.items as ErrorItem[]);
-            currentText = patched.patchedText;
+            const patched = applyErrorItems(baseText, finalData.items as ErrorItem[]);
+            patchedTextForThisRun = patched.patchedText;
           }
-          // 透传本轮修复后的全文
-          yield { roleId: role.id, stage: 'final', payload: { ...(final.data as Record<string, unknown>), patchedText: currentText } };
+          // 透传本轮修复后的全文（仅用于展示/最终返回），不影响后续运行的输入
+          yield { roleId: role.id, stage: 'final', payload: { ...(final.data as Record<string, unknown>), patchedText: patchedTextForThisRun } };
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
