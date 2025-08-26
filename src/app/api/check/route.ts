@@ -1,5 +1,5 @@
 // 切换为基于“角色流水线执行器”的实现
-import { AnalyzeRequestSchema } from '@/types/schemas';
+import { AnalyzeRequestSchema, EnabledType } from '@/types/schemas';
 import { ErrorItemSchema } from '@/types/error';
 import type { ErrorItem } from '@/types/error';
 import { randomUUID } from 'crypto';
@@ -22,6 +22,33 @@ function sanitizeErrors(raw: unknown) {
   return out;
 }
 
+// —— 本地响应类型，确保不使用 any ——
+type ReviewerStatus = 'skipped' | 'error' | 'empty' | 'ok';
+interface DecisionsCount { accepted: number; rejected: number; modified: number }
+interface AnalyzeResponseMeta {
+  elapsedMs: number;
+  enabledTypes: EnabledType[];
+  reviewer: {
+    ran: boolean;
+    status: ReviewerStatus;
+    counts: DecisionsCount;
+    fallbackUsed: boolean;
+    error?: string;
+  };
+  warnings?: string[];
+}
+interface AnalyzeResponse {
+  errors: ErrorItem[];
+  patchedText?: string;
+  meta: AnalyzeResponseMeta;
+}
+interface SSEFinalEvent {
+  type: 'final';
+  errors: ErrorItem[];
+  meta: AnalyzeResponseMeta;
+  patchedText?: string;
+}
+
 function getIp(request: Request): string {
   const xf = request.headers.get('x-forwarded-for');
   if (xf) return xf.split(',')[0].trim();
@@ -36,14 +63,14 @@ export async function POST(request: Request) {
   try {
     const startedAtAll = Date.now();
     const ip = getIp(request);
-    const log = (event: string, details: Record<string, any> = {}) => {
+    const log = (event: string, details: Record<string, unknown> = {}) => {
       try {
         logger.info(`api.check.${event}`, { reqId: requestId, ip, ...details });
       } catch {}
     };
     log('request.received', { method: 'POST', path: '/api/check' });
     // 记录当前 pipeline 配置，便于复现
-    try { log('pipeline', { pipeline: (config.langchain.workflow as any)?.pipeline }); } catch {}
+    try { log('pipeline', { pipeline: config.langchain.workflow.pipeline }); } catch {}
     // E2E 测试注入：仅当设置 E2E_ENABLE=1 时，允许通过自定义头控制模拟场景
     // 为避免 Response body 处理问题，E2E 场景优先处理，不预先消费请求体
     const e2eEnabled = process.env.E2E_ENABLE === '1';
@@ -191,9 +218,10 @@ export async function POST(request: Request) {
       registerBuiltinRoles();
       const warnings: string[] = [];
       log('json.start');
+      type ReqPipelineEntry = { id: string; runs?: number; modelName?: string };
       const roleEntries = (options.pipeline && options.pipeline.length
-        ? options.pipeline.map((p: any) => ({ id: p.id, runs: p.runs, modelName: p.modelName }))
-        : (config.langchain.workflow.pipeline || []).map((p: any) => ({ id: p.agent, runs: p.runs }))
+        ? options.pipeline.map((p: ReqPipelineEntry) => ({ id: p.id, runs: p.runs ?? 1, modelName: p.modelName }))
+        : (config.langchain.workflow.pipeline || []).map((p: { agent: 'basic'; runs: number }) => ({ id: p.agent, runs: p.runs }))
       );
       // 记录本次请求实际采用的 pipeline 来源与内容
       try {
@@ -206,35 +234,55 @@ export async function POST(request: Request) {
       let reviewerRan = false;
       let reviewerError: string | undefined;
       let decisionsStat = { accepted: 0, rejected: 0, modified: 0 };
+      // 记录最后一次角色完成后的全文（修复后）
+      let finalPatchedText: string | undefined;
+
+      // 建立总超时与可取消控制
+      const controller = new AbortController();
+      const onAbort = (_ev: Event) => {
+        try { controller.abort(); } catch {}
+      };
+      request.signal.addEventListener('abort', onAbort, { once: true });
+      const timeout = setTimeout(() => {
+        try { controller.abort(); } catch {}
+      }, config.langchain.analyzeTimeoutMs);
 
       try {
         for await (const ev of runPipeline({
           roles: roleEntries,
           input: { text },
-          signal: request.signal as any,
+          signal: controller.signal,
           metadata: { enabledTypes: options.enabledTypes },
         })) {
           if (ev.stage === 'final') {
-            const payload: any = (ev as any).payload || {};
-            const items = Array.isArray(payload.items) ? payload.items : [];
+            const payload = (ev.payload ?? {}) as Record<string, unknown>;
+            const itemsRaw: unknown = (payload as { items?: unknown }).items;
+            const items = Array.isArray(itemsRaw) ? itemsRaw : [];
             const sanitized = sanitizeErrors(items);
+            if (typeof payload.patchedText === 'string') {
+              finalPatchedText = payload.patchedText;
+            }
             if (ev.roleId === 'basic') {
               basicItems = sanitized;
             } else if (ev.roleId === 'reviewer') {
               reviewerRan = true;
               reviewerItems = sanitized;
-              const decisions = Array.isArray(payload.decisions) ? payload.decisions : [];
+              const decisions = Array.isArray((payload as { decisions?: unknown }).decisions)
+                ? ((payload as { decisions?: unknown }).decisions as unknown[])
+                : [];
               if (decisions.length) {
-                const stat = { accepted: 0, rejected: 0, modified: 0 } as any;
-                for (const d of decisions) {
-                  const s = String((d?.status ?? '').toString().toLowerCase());
+                const stat: { accepted: number; rejected: number; modified: number } = { accepted: 0, rejected: 0, modified: 0 };
+                for (const d of decisions as Array<{ status?: unknown }>) {
+                  const raw = (d?.status ?? '').toString().toLowerCase();
+                  const s = String(raw);
                   if (s === 'accept') stat.accepted++;
                   else if (s === 'reject') stat.rejected++;
                   else if (s === 'modify' || s === 'revise') stat.modified++;
                 }
                 decisionsStat = stat;
               }
-              if (payload.error) reviewerError = String(payload.error);
+              const errMsg = (payload as { error?: unknown }).error;
+              if (typeof errMsg === 'string') reviewerError = errMsg;
             }
           } else if (ev.stage === 'error') {
             warnings.push(`${ev.roleId}:${ev.error}`);
@@ -245,9 +293,25 @@ export async function POST(request: Request) {
           }
         }
       } catch (e) {
-        const msg = (e as any)?.message || String(e);
-        log('json.error', { message: msg });
+        const abortedByClient = request.signal.aborted === true;
+        const abortedByTimeout = controller.signal.aborted === true && !abortedByClient;
+        const msg = (e instanceof Error ? e.message : String(e));
+        log('json.error', { message: msg, abortedByClient, abortedByTimeout });
+        if (abortedByClient || abortedByTimeout) {
+          const status = abortedByClient ? 499 : 504;
+          const body = { error: abortedByClient ? 'client_aborted' : 'timeout' };
+          clearTimeout(timeout);
+          request.signal.removeEventListener('abort', onAbort);
+          return new Response(JSON.stringify(body), {
+            status,
+            headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
+          });
+        }
         throw e;
+      }
+      finally {
+        clearTimeout(timeout);
+        request.signal.removeEventListener('abort', onAbort);
       }
 
       const elapsedMs = Date.now() - startedAt;
@@ -261,21 +325,22 @@ export async function POST(request: Request) {
       const fallbackUsed = reviewerRan && reviewerItems.length === 0 && basicItems.length > 0;
       const finalErrors = reviewerItems.length > 0 ? reviewerItems : basicItems;
 
-      const body = {
+      const body: AnalyzeResponse = {
         errors: finalErrors,
+        ...(config.langchain.agents.basic.returnPatchedText ? { patchedText: finalPatchedText ?? text } : {}),
         meta: {
           elapsedMs,
           enabledTypes: options.enabledTypes,
           reviewer: {
             ran: reviewerRan,
-            status: reviewerStatus,
+            status: reviewerStatus as ReviewerStatus,
             counts: decisionsStat,
             fallbackUsed,
             ...(reviewerError ? { error: reviewerError } : {}),
           },
           ...(warnings.length ? { warnings } : {}),
         },
-      } as any;
+      };
       log('json.done', { elapsedMs, warnings: warnings.length, errorCount: body.errors.length, reviewer: body.meta.reviewer });
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -290,20 +355,23 @@ export async function POST(request: Request) {
       async start(controller) {
         let isClosed = false;
         // 监听客户端断开/请求中止
-        const abortHandler = () => {
+        const abortHandler = (_ev: Event) => {
           if (!isClosed) {
             try { controller.close(); } catch {}
             isClosed = true;
           }
         };
-        (request as any).signal?.addEventListener?.('abort', abortHandler);
+        request.signal.addEventListener('abort', abortHandler);
 
-        const safeEnqueue = (obj: any) => {
+        const safeEnqueue = (obj: unknown) => {
           if (isClosed) return;
           try {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-            if (obj?.type === 'chunk') {
-              try { log('sse.chunk', { agent: obj.agent, errorCount: Array.isArray(obj.errors) ? obj.errors.length : 0 }); } catch {}
+            if (typeof obj === 'object' && obj !== null && (obj as { type?: unknown }).type === 'chunk') {
+              const agent = (obj as { agent?: unknown }).agent;
+              const errorsField = (obj as { errors?: unknown }).errors;
+              const errorCount = Array.isArray(errorsField) ? errorsField.length : 0;
+              try { log('sse.chunk', { agent, errorCount }); } catch {}
             }
           } catch {
             // 如果写入失败，视为已关闭，忽略后续写入
@@ -327,9 +395,10 @@ export async function POST(request: Request) {
           const startedAt = Date.now();
           log('sse.start');
           registerBuiltinRoles();
+          type ReqPipelineEntry = { id: string; runs?: number; modelName?: string };
           const roleEntries = (options.pipeline && options.pipeline.length
-            ? options.pipeline.map((p: any) => ({ id: p.id, runs: p.runs, modelName: p.modelName }))
-            : (config.langchain.workflow.pipeline || []).map((p: any) => ({ id: p.agent, runs: p.runs }))
+            ? options.pipeline.map((p: ReqPipelineEntry) => ({ id: p.id, runs: p.runs ?? 1, modelName: p.modelName }))
+            : (config.langchain.workflow.pipeline || []).map((p: { agent: 'basic'; runs: number }) => ({ id: p.agent, runs: p.runs }))
           );
           // 记录本次 SSE 请求实际采用的 pipeline 来源与内容
           try {
@@ -337,54 +406,73 @@ export async function POST(request: Request) {
             log('pipeline.selected', { source, roles: roleEntries });
           } catch {}
           let lastItems: ErrorItem[] = [];
+          let lastPatchedText: string | undefined;
           // 跟踪 basic / reviewer 结果用于最终回退
           let basicItems: ErrorItem[] = [];
           let reviewerItems: ErrorItem[] = [];
           let reviewerRan = false;
           let reviewerError: string | undefined;
           let decisionsStat = { accepted: 0, rejected: 0, modified: 0 };
+          // 角色执行信号：挂接客户端中断与总超时
+          const roleAbort = new AbortController();
+          const roleAbortOnReqAbort = (_ev: Event) => { try { roleAbort.abort(); } catch {} };
+          request.signal.addEventListener('abort', roleAbortOnReqAbort, { once: true });
+          const roleTimeout = setTimeout(() => { try { roleAbort.abort(); } catch {} }, config.langchain.analyzeTimeoutMs);
 
           for await (const ev of runPipeline({
             roles: roleEntries,
             input: { text },
-            signal: (request as any).signal,
+            signal: roleAbort.signal,
             metadata: { enabledTypes: options.enabledTypes },
           })) {
             if (ev.stage === 'start') {
               // 可选：发送开始事件（当前协议不要求）
             } else if (ev.stage === 'chunk') {
-              const items = Array.isArray((ev as any).payload?.items)
-                ? (ev as any).payload.items
-                : Array.isArray((ev as any).payload)
-                ? (ev as any).payload
-                : [];
-              const data = { type: 'chunk', agent: ev.roleId, errors: sanitizeErrors(items) };
+              const payloadUnknown = ev.payload as unknown;
+              let items: unknown[] = [];
+              if (Array.isArray(payloadUnknown)) {
+                items = payloadUnknown;
+              } else if (payloadUnknown && typeof payloadUnknown === 'object' && Array.isArray((payloadUnknown as { items?: unknown }).items)) {
+                items = ((payloadUnknown as { items?: unknown }).items as unknown[]) || [];
+              }
+              // 附带步骤索引（若执行器提供），用于前端聚合分组
+              const runIndex: number | undefined = ev.runIndex;
+              const data = { type: 'chunk', agent: ev.roleId, errors: sanitizeErrors(items), ...(typeof runIndex === 'number' ? { runIndex } : {}) };
               safeEnqueue(data);
             } else if (ev.stage === 'final') {
-              const payload: any = (ev as any).payload || {};
-              const items = Array.isArray(payload.items) ? payload.items : [];
+              const payload = (ev.payload ?? {}) as Record<string, unknown>;
+              const itemsRaw: unknown = (payload as { items?: unknown }).items;
+              const items = Array.isArray(itemsRaw) ? itemsRaw : [];
               lastItems = sanitizeErrors(items);
+              if (typeof payload.patchedText === 'string') {
+                lastPatchedText = payload.patchedText;
+              }
               // 跟踪 basic/reviewer
               if (ev.roleId === 'basic') {
                 basicItems = lastItems;
               } else if (ev.roleId === 'reviewer') {
                 reviewerRan = true;
                 reviewerItems = lastItems;
-                const decisions = Array.isArray(payload.decisions) ? payload.decisions : [];
+                const decisions = Array.isArray((payload as { decisions?: unknown }).decisions)
+                  ? ((payload as { decisions?: unknown }).decisions as unknown[])
+                  : [];
                 if (decisions.length) {
-                  const stat = { accepted: 0, rejected: 0, modified: 0 } as any;
-                  for (const d of decisions) {
-                    const s = String((d?.status ?? '').toString().toLowerCase());
+                  const stat: { accepted: number; rejected: number; modified: number } = { accepted: 0, rejected: 0, modified: 0 };
+                  for (const d of decisions as Array<{ status?: unknown }>) {
+                    const raw = (d?.status ?? '').toString().toLowerCase();
+                    const s = String(raw);
                     if (s === 'accept') stat.accepted++;
                     else if (s === 'reject') stat.rejected++;
                     else if (s === 'modify' || s === 'revise') stat.modified++;
                   }
                   decisionsStat = stat;
                 }
-                if (payload.error) reviewerError = String(payload.error);
+                const errMsg = (payload as { error?: unknown }).error;
+                if (typeof errMsg === 'string') reviewerError = errMsg;
               }
-              // 向后兼容：每个角色最终产物也以 chunk 形式发送
-              const data = { type: 'chunk', agent: ev.roleId, errors: lastItems };
+              // 向后兼容：每个角色最终产物也以 chunk 形式发送，带 runIndex 标记
+              const runIndex: number | undefined = ev.runIndex;
+              const data = { type: 'chunk', agent: ev.roleId, errors: lastItems, ...(typeof runIndex === 'number' ? { runIndex, isFinalOfRun: true } : { isFinalOfRun: true }) } as { type: 'chunk'; agent: string; errors: ErrorItem[]; runIndex?: number; isFinalOfRun: true };
               safeEnqueue(data);
             } else if (ev.stage === 'error') {
               safeEnqueue({ type: 'warning', agent: ev.roleId, message: ev.error });
@@ -394,6 +482,8 @@ export async function POST(request: Request) {
               }
             }
           }
+          clearTimeout(roleTimeout);
+          request.signal.removeEventListener('abort', roleAbortOnReqAbort);
 
           const elapsedMs = Date.now() - startedAt;
           const reviewerStatus = !reviewerRan
@@ -405,7 +495,7 @@ export async function POST(request: Request) {
             : 'ok';
           const fallbackUsed = reviewerRan && reviewerItems.length === 0 && basicItems.length > 0;
           const finalErrors = reviewerItems.length > 0 ? reviewerItems : basicItems;
-          const finalData = {
+          const finalData: SSEFinalEvent = {
             type: 'final',
             errors: finalErrors,
             meta: {
@@ -413,30 +503,30 @@ export async function POST(request: Request) {
               enabledTypes: options.enabledTypes,
               reviewer: {
                 ran: reviewerRan,
-                status: reviewerStatus,
+                status: reviewerStatus as ReviewerStatus,
                 counts: decisionsStat,
                 fallbackUsed,
                 ...(reviewerError ? { error: reviewerError } : {}),
               },
             },
-          } as any;
+            ...(config.langchain.agents.basic.returnPatchedText ? { patchedText: lastPatchedText ?? text } : {}),
+          };
           safeEnqueue(finalData);
           log('sse.final', { elapsedMs, errorCount: Array.isArray(finalData.errors) ? finalData.errors.length : 0, reviewer: finalData.meta.reviewer });
-        } catch (error) {
-          const err: any = error;
-          const message = err?.message || String(err);
-          const aborted = (request as any)?.signal?.aborted === true || err?.name === 'AbortError';
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          const aborted = request.signal.aborted === true || (error instanceof Error && (error as Error).name === 'AbortError');
           const code = aborted ? 'aborted' : 'internal';
           safeEnqueue({ type: 'error', code, message, requestId });
           log('sse.error', { code, message });
         } finally {
           clearInterval(keepAlive);
-          request.signal?.removeEventListener?.('abort', abortHandler as any);
+          request.signal.removeEventListener('abort', abortHandler);
           if (!isClosed) {
             try { controller.close(); } catch {}
             isClosed = true;
           }
-          log('sse.close', { aborted: (request as any)?.signal?.aborted === true, totalElapsedMs: Date.now() - startedAtAll });
+          log('sse.close', { aborted: request.signal.aborted === true, totalElapsedMs: Date.now() - startedAtAll });
         }
       },
     });
@@ -450,8 +540,8 @@ export async function POST(request: Request) {
         'X-Request-Id': requestId,
       },
     });
-  } catch (error) {
-    try { logger.error('api.check.unhandled_error', { reqId: requestId, error: (error as any)?.message }); } catch {}
+  } catch (error: unknown) {
+    try { logger.error('api.check.unhandled_error', { reqId: requestId, error: error instanceof Error ? error.message : String(error) }); } catch {}
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },

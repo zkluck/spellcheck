@@ -41,20 +41,12 @@ export type AnalyzeOptionsInput = z.infer<typeof AnalyzeOptionsSchema>;
 export type RoleId = z.infer<typeof RoleIdEnum>;
 export type RolePipelineEntry = z.infer<typeof RolePipelineEntrySchema>;
 
-// —— 通用 Agent 输入（带 previous）——
-export const AgentPreviousSchema = z.object({
-  issuesJson: z.string().optional(),
-  patchedText: z.string().optional(),
-  runIndex: z.number().optional(),
-});
-
-export const AgentInputWithPreviousSchema = z.object({
+// —— 通用 Agent 输入 ——
+export const AgentInputSchema = z.object({
   text: z.string(),
-  previous: AgentPreviousSchema.optional(),
 });
 
-export type AgentPrevious = z.infer<typeof AgentPreviousSchema>;
-export type AgentInputWithPrevious = z.infer<typeof AgentInputWithPreviousSchema>;
+export type AgentInput = z.infer<typeof AgentInputSchema>;
 
 // —— Agent 返回值（运行时校验）——
 export const AgentResponseSchema = z.object({

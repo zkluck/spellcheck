@@ -22,22 +22,25 @@ export const basicRole: Role = {
     maxRetries: readNumber('OPENAI_MAX_RETRIES', 2),
   },
   async run(input: AnalysisInput, ctx: RoleContext): Promise<RoleFinal<{ items: ErrorItem[]; rawOutput?: string; error?: string }>> {
-    const modelName = (ctx.metadata as any)?.modelName as string | undefined;
+    // 元数据仅保留与当前角色运行相关的必要字段
+    const md = (ctx.metadata ?? {}) as Partial<{
+      modelName: string;
+      runIndex: number;
+      enabledTypes: string[];
+    }>;
+    const modelName = md.modelName;
     const agent = new BasicErrorAgent({ modelName });
 
-    // 从 metadata 读取上一轮结果与运行序号
-    const prevItems = (ctx.metadata as any)?.previousItems as ErrorItem[] | undefined;
-    const runIndex = (ctx.metadata as any)?.runIndex as number | undefined;
-    const enabledTypes = (ctx.metadata as any)?.enabledTypes as string[] | undefined;
+    const enabledTypes = md.enabledTypes;
 
-    const previous = prevItems && prevItems.length > 0 ? { issuesJson: JSON.stringify(prevItems), runIndex } : { runIndex };
-
-    const res = await agent.call({ text: input.text, previous }, ctx.signal as any);
+    // 说明：ctx.signal 类型为 Node.js/DOM 的 AbortSignal，类型在不同运行时存在差异，
+    // 这里保持 RoleContext.signal 为 any 仅用于传递与监听取消事件，不参与业务逻辑。
+    const res = await agent.call({ text: input.text }, ctx.signal);
     let items: ErrorItem[] = Array.isArray(res.result) ? res.result : [];
 
     if (Array.isArray(enabledTypes) && enabledTypes.length > 0) {
       const allowed = new Set(enabledTypes);
-      items = items.filter((it) => allowed.has(it.type as any));
+      items = items.filter((it) => allowed.has(it.type));
     }
 
     return { type: 'final', data: { items, rawOutput: res.rawOutput, error: res.error } };

@@ -54,7 +54,6 @@ export const config = {
      */
     ruleEngine: {
       enabled: getEnvBool('RULE_ENGINE_ENABLED', true),
-      priority: getEnvNumber('RULE_ENGINE_PRIORITY', 1.0) // 规则引擎结果优先级权重
     }
   },
   /**
@@ -116,6 +115,11 @@ export const config = {
          */
         maxOutput: getEnvNumber('BASIC_MAX_OUTPUT', 200),
         /**
+         * 是否在 API 输出中返回修复后的全文 patchedText
+         * 环境变量：BASIC_RETURN_PATCHED_TEXT（默认 true）
+         */
+        returnPatchedText: getEnvBool('BASIC_RETURN_PATCHED_TEXT', true),
+        /**
          * 是否强制仅保留索引“严格匹配”的项（metadata.locate === 'exact'）
          * 默认 true；环境变量：BASIC_REQUIRE_EXACT_INDEX
          */
@@ -154,17 +158,6 @@ export const config = {
         },
       },
     },
-  },
-  /**
-   * 日志相关配置
-   */
-  logging: {
-    /**
-     * 是否允许在日志中输出示例内容（如文本片段、建议等）。
-     * 默认: false
-     * 环境变量: LOG_ENABLE_PAYLOAD
-     */
-    enablePayload: getEnvBool('LOG_ENABLE_PAYLOAD', false),
   },
 };
 

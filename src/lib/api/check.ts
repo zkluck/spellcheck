@@ -9,9 +9,16 @@ export type CheckOptions = {
 
 export type RetryReason = 'http-5xx' | 'network' | 'idle' | 'eof-no-final' | 'unknown';
 
+export type SseChunkMeta = {
+  agent?: string;
+  runIndex?: number;
+  isFinalOfRun?: boolean;
+};
+
 export type SseCheckCallbacks = {
-  onChunk?: (errors: ErrorItem[]) => void;
-  onFinal?: (errors: ErrorItem[], meta?: any) => void;
+  // 说明：为支持多步骤分组，增加 meta 参数传递 agent/runIndex/isFinalOfRun。
+  onChunk?: (errors: ErrorItem[], meta?: SseChunkMeta) => void;
+  onFinal?: (errors: ErrorItem[], meta?: any) => void; // meta 来自后端，结构不稳定，暂以 any 承载
   onError?: (message: string, code?: string, requestId?: string) => void;
   onRetry?: (reason: RetryReason, waitMs: number, attempt: number, maxRetries: number) => void;
 };
@@ -190,7 +197,12 @@ export async function sseCheck(
               const json = JSON.parse(payload);
               if (json.type === 'chunk') {
                 const arr: ErrorItem[] = Array.isArray(json.errors) ? json.errors : [];
-                cb.onChunk?.(arr);
+                const meta = {
+                  agent: typeof json.agent === 'string' ? json.agent : undefined,
+                  runIndex: typeof json.runIndex === 'number' ? json.runIndex : undefined,
+                  isFinalOfRun: json.isFinalOfRun === true,
+                } as SseChunkMeta;
+                cb.onChunk?.(arr, meta);
               } else if (json.type === 'final') {
                 const arr: ErrorItem[] = Array.isArray(json.errors) ? json.errors : [];
                 cb.onFinal?.(arr, json.meta);

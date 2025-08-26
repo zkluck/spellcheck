@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import classnames from 'classnames/bind';
 import { ErrorItem } from '@/types/error';
 import styles from './index.module.scss';
+import { getSources } from '@/lib/errors/sourceUtils';
 
 const cn = classnames.bind(styles);
 
@@ -16,6 +18,7 @@ const VIRTUAL_ITEM_ESTIMATE_HEIGHT = 160; // 虚拟滚动项估算高度
 const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
 interface ResultPanelProps {
+  // 综合视图：所有轮次已合并的错误数组
   errors: ErrorItem[];
   onApplyError: (error: ErrorItem) => void;
   onIgnoreError: (error: ErrorItem) => void;
@@ -26,6 +29,12 @@ interface ResultPanelProps {
   activeErrorId: string | null;
   onSelectError: (id: string | null) => void;
   isLoading: boolean;
+  /**
+   * reviewer：审阅器的运行状态与计数等元数据。
+   * 说明：后端审阅器产出的结构目前不稳定，字段及嵌套层级可能随配置或版本变化。
+   * 为保证前端兼容，我们在此处暂以 any 承载动态 schema，仅以只读方式解构必要字段并做空值守护。
+   * 后续计划：在 types/reviewer.ts 中补充 Zod 校验与 TS 类型，稳定后替换为强类型接口。
+   */
   reviewer?: any | null;
 }
 
@@ -42,6 +51,7 @@ function ResultPanel({
   isLoading,
   reviewer = null,
 }: ResultPanelProps) {
+  // 视图模式：all 为综合视图；否则为某一轮次 id
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [overflowIds, setOverflowIds] = useState<Set<string>>(new Set());
   const textRefs = useRef<Map<string, HTMLSpanElement | null>>(new Map());
@@ -54,9 +64,7 @@ function ResultPanel({
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const [morePos, setMorePos] = useState<{ top: number; left: number; width: number; height: number; right: number } | null>(null);
 
-  // 筛选与排序状态
-  const [filterSource, setFilterSource] = useState<'all' | 'basic' | 'fluent'>('all');
-  // Reviewer 相关筛选已移除（决策与仅冲突）
+  // 排序状态
   const [sortMode, setSortMode] = useState<'none' | 'confidence-desc'>('confidence-desc');
 
   // 初始化从本地存储恢复偏好
@@ -65,9 +73,6 @@ function ResultPanel({
       const raw = localStorage.getItem(PREFS_KEY);
       if (!raw) return;
       const obj = JSON.parse(raw || '{}');
-      const fs = obj.filterSource;
-      const isValidSource = (v: any): v is 'all' | 'basic' | 'fluent' => v === 'all' || v === 'basic' || v === 'fluent';
-      if (isValidSource(fs)) setFilterSource(fs);
       if (obj.sortMode) setSortMode(obj.sortMode);
     } catch {}
   }, []);
@@ -77,10 +82,10 @@ function ResultPanel({
     try {
       localStorage.setItem(
         PREFS_KEY,
-        JSON.stringify({ filterSource, sortMode })
+        JSON.stringify({ sortMode })
       );
     } catch {}
-  }, [filterSource, sortMode]);
+  }, [sortMode]);
 
   const setTextRef = useCallback((id: string) => (el: HTMLSpanElement | null) => {
     textRefs.current.set(id, el);
@@ -103,14 +108,9 @@ function ResultPanel({
     setOverflowIds(next);
   }, []);
 
-  // 计算视图层用的错误列表（应用筛选与排序）
+  // 计算视图层用的错误列表（应用排序）
   const viewErrors = useMemo(() => {
     let list = errors.slice();
-    // 过滤：来源
-    if (filterSource !== 'all') {
-      list = list.filter((e) => getSources(e).includes(filterSource));
-    }
-    // Reviewer 决策与冲突筛选已移除
     // 排序：置信度降序（无置信度置后）
     if (sortMode === 'confidence-desc') {
       list = list.slice().sort((a, b) => {
@@ -123,7 +123,7 @@ function ResultPanel({
       });
     }
     return list;
-  }, [errors, filterSource, sortMode]);
+  }, [errors, sortMode]);
 
   // id -> index 映射（用于滚动定位）
   const idToIndex = useMemo(() => {
@@ -255,7 +255,7 @@ function ResultPanel({
   }, [canUndo, isMoreOpen, onUndo, showToast]);
 
   // 键盘导航：↑/↓ 切换，Enter 修正，Delete/Backspace 忽略
-  const handleKeyDown = useCallback((e: any) => {
+  const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     let handled = false;
     const list = viewErrors;
     if (!list || list.length === 0) return;
@@ -286,6 +286,8 @@ function ResultPanel({
       e.stopPropagation();
     }
   }, [viewErrors, activeErrorId, onSelectError, onApplyError, onIgnoreError]);
+
+  // Tabs 已移除：不再提供分步切换与键盘导航
 
   useEffect(() => {
     if (!activeErrorId) return;
@@ -401,14 +403,7 @@ function ResultPanel({
     return null;
   };
 
-  // 来源/决策/冲突等元数据提取（函数声明，避免 TDZ）
-  function getSources(error: ErrorItem): string[] {
-    const meta: any = (error as any).metadata ?? {};
-    const s = meta?.sources ?? meta?.source ?? (error as any).source;
-    if (Array.isArray(s)) return s.map((x) => String(x).toLowerCase());
-    if (s) return [String(s).toLowerCase()];
-    return [];
-  }
+  // 来源处理改用共享工具 getSources
 
   const getSourceLabel = (s: string) => {
     switch (s) {
@@ -644,7 +639,8 @@ function ResultPanel({
     );
   }
 
-  if (errors.length === 0) {
+  // 空态：当所选 tab 对应列表为空时显示
+  if (viewErrors.length === 0) {
     const isReviewerError = reviewer?.status === 'error';
     const isReviewerEmpty = reviewer?.ran && reviewer?.status === 'empty';
     const fallback = reviewer?.fallbackUsed;
@@ -780,24 +776,13 @@ function ResultPanel({
           </button>
         </div>
       </div>
+      {/* 分组 Tabs 模块已删除 */}
       {renderReviewerBanner()}
       {toastMsg && (
         <div className={cn('result-panel__toast')} aria-live="polite" role="status">{toastMsg}</div>
       )}
       <div className={cn('result-panel__filters')}>
-        <div className={cn('result-panel__filter-group')}>
-          <label className={cn('result-panel__label')} htmlFor="filter-source">来源</label>
-          <select
-            id="filter-source"
-            className={cn('result-panel__select')}
-            value={filterSource}
-            onChange={(e) => setFilterSource(e.target.value as any)}
-          >
-            <option value="all">全部</option>
-            <option value="basic">基础</option>
-            <option value="fluent">流畅</option>
-          </select>
-        </div>
+        
         {/* Reviewer 决策筛选与仅冲突开关已移除 */}
         <div className={cn('result-panel__filter-group')}>
           <label className={cn('result-panel__label')} htmlFor="sort-mode">排序</label>
@@ -805,7 +790,7 @@ function ResultPanel({
             id="sort-mode"
             className={cn('result-panel__select')}
             value={sortMode}
-            onChange={(e) => setSortMode(e.target.value as any)}
+            onChange={(e) => setSortMode(e.target.value as 'confidence-desc' | 'none')}
           >
             <option value="confidence-desc">置信度从高到低</option>
             <option value="none">默认</option>
@@ -863,9 +848,12 @@ function ResultPanel({
                 >
                   <div className={cn('error-item__inner')}>
                   <div className={cn('error-item__header')}>
-                    <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
-                      {getErrorTypeLabel(error.type)}
-                    </span>
+                    {/* 产品需求：移除“流畅”类型徽章，仅保留其它类型显示 */}
+                    {error.type !== 'fluency' && (
+                      <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
+                        {getErrorTypeLabel(error.type)}
+                      </span>
+                    )}
                     {(() => {
                       const c = getConfidence(error);
                       if (c == null) return null;
