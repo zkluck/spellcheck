@@ -25,8 +25,9 @@ export interface AnalysisInput {
 }
 
 export interface RoleContext {
-  // 兼容 Node/DOM 的 AbortSignal；为避免依赖 lib 冲突，这里使用 any
-  signal?: any;
+  // 取消信号：使用标准 AbortSignal，兼容 Node 与浏览器环境
+  // 角色实现必须在收到取消信号后尽快退出，避免长时间占用资源
+  signal?: AbortSignal;
   metadata?: Record<string, unknown>;
 }
 
@@ -59,6 +60,8 @@ export type SSEEvent = {
   stage: 'start' | 'chunk' | 'final' | 'error';
   payload?: unknown;
   error?: string;
+  // 当前事件所属的运行轮次索引（0 基），用于前端聚合展示
+  runIndex?: number;
 };
 
 export interface ExecutorHooks {

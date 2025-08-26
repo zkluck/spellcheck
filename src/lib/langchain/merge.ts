@@ -97,7 +97,7 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
       if (eCur !== eBest) return eCur > eBest ? cur : best;
       return best; // 保持稳定性
     });
-    // 合并同键所有候选的来源，确保“全部”视图保留来源集合用于筛选
+    // 合并同键所有候选的来源，确保“全部”视图保留来源集合用于徽章展示/内部统计
     const union = new Set<string>();
     for (const x of arr) getSources(x).forEach((s) => union.add(s));
     if (union.size === 0) return best;

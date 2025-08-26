@@ -64,9 +64,7 @@ function ResultPanel({
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const [morePos, setMorePos] = useState<{ top: number; left: number; width: number; height: number; right: number } | null>(null);
 
-  // 筛选与排序状态
-  const [filterSource, setFilterSource] = useState<'all' | 'basic' | 'fluent' | 'reviewer'>('all');
-  // Reviewer 相关筛选已移除（决策与仅冲突）
+  // 排序状态
   const [sortMode, setSortMode] = useState<'none' | 'confidence-desc'>('confidence-desc');
 
   // 初始化从本地存储恢复偏好
@@ -75,9 +73,6 @@ function ResultPanel({
       const raw = localStorage.getItem(PREFS_KEY);
       if (!raw) return;
       const obj = JSON.parse(raw || '{}');
-      const fs = obj.filterSource;
-      const isValidSource = (v: any): v is 'all' | 'basic' | 'fluent' | 'reviewer' => v === 'all' || v === 'basic' || v === 'fluent' || v === 'reviewer';
-      if (isValidSource(fs)) setFilterSource(fs);
       if (obj.sortMode) setSortMode(obj.sortMode);
     } catch {}
   }, []);
@@ -87,10 +82,10 @@ function ResultPanel({
     try {
       localStorage.setItem(
         PREFS_KEY,
-        JSON.stringify({ filterSource, sortMode })
+        JSON.stringify({ sortMode })
       );
     } catch {}
-  }, [filterSource, sortMode]);
+  }, [sortMode]);
 
   const setTextRef = useCallback((id: string) => (el: HTMLSpanElement | null) => {
     textRefs.current.set(id, el);
@@ -113,14 +108,9 @@ function ResultPanel({
     setOverflowIds(next);
   }, []);
 
-  // 计算视图层用的错误列表（应用筛选与排序）
+  // 计算视图层用的错误列表（应用排序）
   const viewErrors = useMemo(() => {
     let list = errors.slice();
-    // 过滤：来源
-    if (filterSource !== 'all') {
-      list = list.filter((e) => getSources(e).includes(filterSource));
-    }
-    // Reviewer 决策与冲突筛选已移除
     // 排序：置信度降序（无置信度置后）
     if (sortMode === 'confidence-desc') {
       list = list.slice().sort((a, b) => {
@@ -133,7 +123,7 @@ function ResultPanel({
       });
     }
     return list;
-  }, [errors, filterSource, sortMode]);
+  }, [errors, sortMode]);
 
   // id -> index 映射（用于滚动定位）
   const idToIndex = useMemo(() => {
@@ -792,20 +782,7 @@ function ResultPanel({
         <div className={cn('result-panel__toast')} aria-live="polite" role="status">{toastMsg}</div>
       )}
       <div className={cn('result-panel__filters')}>
-        <div className={cn('result-panel__filter-group')}>
-          <label className={cn('result-panel__label')} htmlFor="filter-source">来源</label>
-          <select
-            id="filter-source"
-            className={cn('result-panel__select')}
-            value={filterSource}
-            onChange={(e) => setFilterSource(e.target.value as 'all' | 'basic' | 'fluent' | 'reviewer')}
-          >
-            <option value="all">全部</option>
-            <option value="basic">基础</option>
-            <option value="fluent">流畅</option>
-            <option value="reviewer">审阅</option>
-          </select>
-        </div>
+        
         {/* Reviewer 决策筛选与仅冲突开关已移除 */}
         <div className={cn('result-panel__filter-group')}>
           <label className={cn('result-panel__label')} htmlFor="sort-mode">排序</label>
@@ -871,9 +848,12 @@ function ResultPanel({
                 >
                   <div className={cn('error-item__inner')}>
                   <div className={cn('error-item__header')}>
-                    <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
-                      {getErrorTypeLabel(error.type)}
-                    </span>
+                    {/* 产品需求：移除“流畅”类型徽章，仅保留其它类型显示 */}
+                    {error.type !== 'fluency' && (
+                      <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
+                        {getErrorTypeLabel(error.type)}
+                      </span>
+                    )}
                     {(() => {
                       const c = getConfidence(error);
                       if (c == null) return null;

@@ -2,7 +2,7 @@
  * 强类型的错误来源工具集。
  * 目标：
  * - 统一 agent -> source 的归一化逻辑
- * - 为错误项注入 metadata.sources（string[]）以供前端筛选
+ * - 为错误项注入 metadata.sources（string[]），用于来源徽章展示与内部统计
  * - 从错误项提取 sources 列表
  *
  * 注意：

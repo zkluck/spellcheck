@@ -182,7 +182,7 @@ export default function Home() {
         controller,
         {
           onChunk: (arr, meta) => {
-            // 0) 基于 agent 注入来源，供 ResultPanel 按“来源”筛选
+            // 0) 基于 agent 注入来源，用于来源徽章展示/内部统计（前端已移除“来源筛选”）
             const enriched = attachSources(arr, meta?.agent);
             // 1) 更新“全部”的合并视图（跨步骤去重合并）——节流批量 dispatch
             const mergedAll = mergeErrors(text, [currentErrorsRef.current, enriched]);
