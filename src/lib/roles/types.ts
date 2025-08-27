@@ -2,14 +2,11 @@
  * 角色与执行相关的核心类型定义
  */
 
-export type RoleCapability =
-  | 'spelling'
-  | 'punctuation'
-  | 'grammar'
-  | 'fluency'
-  | 'style'
-  | 'terminology'
-  | 'review';
+/**
+ * 角色能力类型
+ * 注：已移除所有错误类型相关枚举值
+ */
+export type RoleCapability = 'review';
 
 export interface ModelSpec {
   name: string;

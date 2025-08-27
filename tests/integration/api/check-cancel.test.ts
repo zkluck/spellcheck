@@ -20,7 +20,7 @@ describe('/api/check SSE 取消/超时传播', () => {
         'Accept': 'text/event-stream',
         'x-e2e-scenario': 'long-stream',
       },
-      body: JSON.stringify({ text: '测试文本', options: { enabledTypes: ['grammar'] } }),
+      body: JSON.stringify({ text: '测试文本', options: {} }),
       signal: ac.signal,
     });
 
@@ -62,7 +62,7 @@ describe('/api/check SSE 取消/超时传播', () => {
         'Accept': 'text/event-stream',
         'x-e2e-scenario': 'idle-no-final',
       },
-      body: JSON.stringify({ text: '测试文本', options: { enabledTypes: ['grammar'] } }),
+      body: JSON.stringify({ text: '测试文本', options: {} }),
       signal: ac.signal,
     });
 

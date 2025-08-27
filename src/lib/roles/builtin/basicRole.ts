@@ -11,9 +11,9 @@ function readNumber(envName: string, fallback?: number): number | undefined {
 
 export const basicRole: Role = {
   id: 'basic',
-  name: '基础错误与流畅性检测',
-  description: '检测拼写、标点、基础语法与流畅性问题（最小替换，不做主观改写）',
-  capabilities: ['spelling', 'punctuation', 'grammar', 'fluency'],
+  name: '基础错误检测',
+  description: '基础错误检测（spelling、punctuation、grammar 相关功能已移除）',
+  capabilities: [],
   defaultModel: {
     name: process.env.OPENAI_MODEL ?? 'Doubao-1.5-lite-32k',
     temperature: readNumber('OPENAI_TEMPERATURE', 0.2),
@@ -40,7 +40,7 @@ export const basicRole: Role = {
 
     if (Array.isArray(enabledTypes) && enabledTypes.length > 0) {
       const allowed = new Set(enabledTypes);
-      items = items.filter((it) => allowed.has(it.type));
+      items = items.filter((it) => it.type !== undefined && allowed.has(it.type));
     }
 
     return { type: 'final', data: { items, rawOutput: res.rawOutput, error: res.error } };

@@ -439,10 +439,6 @@
   background-color: #e8f0fe;
   color: #1967d2;
 }
-.error-item__badge--source-fluent {
-  background-color: #f3e8ff;
-  color: #6f42c1;
-}
 .error-item__badge--source-reviewer {
   background-color: #e6f4ea;
   color: #137333;
@@ -470,17 +466,6 @@
   padding: 2px 8px;
   border-radius: 5px;
   color: #fff;
-}
-
-.error-item__type--grammar {
-  background-color: #dc3545;
-}
-.error-item__type--spelling {
-  background-color: #ffc107;
-  color: #333;
-}
-.error-item__type--punctuation {
-  background-color: #17a2b8;
 }
 
 .error-item__actions {

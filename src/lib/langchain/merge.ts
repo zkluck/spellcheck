@@ -68,16 +68,9 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
   };
 
   const pickBest = (arr: ErrorItem[]): ErrorItem => {
-    // 统一优先级：与 resolveOverlaps 中保持一致（数值越大优先级越高）
-    const TYPE_PRIORITY: Record<ErrorItem['type'], number> = {
-      spelling: 4,
-      punctuation: 3,
-      grammar: 2,
-      fluency: 1,
-    };
-    const prio = (t: ErrorItem['type']): number => TYPE_PRIORITY[t] ?? 0;
+    // 简化优先级逻辑
     const explLen = (e: ErrorItem) => (e.explanation?.trim().length ?? 0);
-    // 选择：类型优先级 > explanation 长度 > 原顺序
+    // 选择：按置信度 > explanation 长度 > 原顺序
     const best = arr.reduce((best, cur) => {
       if (!best) return cur;
       if (config.langchain.merge?.confidenceFirst) {
@@ -89,9 +82,6 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
           }
         }
       }
-      const pBest = prio(best.type);
-      const pCur = prio(cur.type);
-      if (pCur !== pBest) return pCur > pBest ? cur : best;
       const eBest = explLen(best);
       const eCur = explLen(cur);
       if (eCur !== eBest) return eCur > eBest ? cur : best;
@@ -122,20 +112,7 @@ function dedupe(items: ErrorItem[]): ErrorItem[] {
  */
 function resolveOverlaps(sorted: ErrorItem[]): ErrorItem[] {
   if (sorted.length === 0) return [];
-  const prio = (t: ErrorItem['type']): number => {
-    switch (t) {
-      case 'spelling':
-        return 4;
-      case 'punctuation':
-        return 3;
-      case 'grammar':
-        return 2;
-      case 'fluency':
-        return 1;
-      default:
-        return 0;
-    }
-  };
+  // 简化重叠解决逻辑
   const explLen = (e: ErrorItem) => (e.explanation?.trim().length ?? 0);
 
   const res: ErrorItem[] = [];
@@ -165,13 +142,7 @@ function resolveOverlaps(sorted: ErrorItem[]): ErrorItem[] {
         if (eCur !== eBest) {
           last = eCur > eBest ? cur : last;
         } else {
-          const pBest = prio(last.type);
-          const pCur = prio(cur.type);
-          if (pCur !== pBest) {
-            last = pCur > pBest ? cur : last;
-          } else {
-            // 仍无法判定，保持先到者（稳定性）
-          }
+          // 仍无法判定，保持先到者（稳定性）
         }
       }
     } else {

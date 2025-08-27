@@ -16,7 +16,7 @@ vi.mock('@/lib/roles/executor', () => {
               end: 2,
               text: '今天',
               suggestion: '今日',
-              type: 'grammar',
+              // type 字段已移除
               explanation: '建议用"今日"替换"今天"',
             },
           ],
@@ -44,7 +44,7 @@ describe('/api/check 接口', () => {
       body: JSON.stringify({
         text: '今天天气很好',
         options: {
-          enabledTypes: ['grammar', 'spelling'],
+          // enabledTypes 已移除
         },
       }),
     });
@@ -58,7 +58,7 @@ describe('/api/check 接口', () => {
     expect(data).toHaveProperty('errors');
     expect(data).toHaveProperty('meta');
     expect(data.meta).toHaveProperty('elapsedMs');
-    expect(data.meta).toHaveProperty('enabledTypes');
+    // enabledTypes 已移除，不再验证
     expect(Array.isArray(data.errors)).toBe(true);
     expect(data.errors.length).toBe(1);
     expect(data.errors[0]).toHaveProperty('id');
@@ -66,7 +66,7 @@ describe('/api/check 接口', () => {
     expect(data.errors[0]).toHaveProperty('end');
     expect(data.errors[0]).toHaveProperty('text');
     expect(data.errors[0]).toHaveProperty('suggestion');
-    expect(data.errors[0]).toHaveProperty('type');
+    // 不再验证 type 字段
   });
 
   it('应当验证请求体并返回400错误', async () => {
@@ -79,7 +79,7 @@ describe('/api/check 接口', () => {
       body: JSON.stringify({
         // 缺少 text 字段
         options: {
-          enabledTypes: ['grammar'],
+          // enabledTypes 已移除
         },
       }),
     });
@@ -105,7 +105,7 @@ describe('/api/check 接口', () => {
       body: JSON.stringify({
         text: '',
         options: {
-          enabledTypes: ['grammar', 'spelling'],
+          // enabledTypes 已移除
         },
       }),
     });

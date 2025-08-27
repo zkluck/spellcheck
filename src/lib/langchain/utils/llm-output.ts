@@ -173,7 +173,7 @@ function findClosestOccurrence(haystack: string, needle: string, hintStart: numb
 export function toErrorItems(
   rawItems: unknown[],
   opts: {
-    enforcedType: 'grammar' | 'spelling' | 'punctuation' | 'fluency';
+    enforcedType?: string;
     originalText?: string;
     allowLocateByTextUnique?: boolean; // 当索引不一致且文本在原文中仅出现一次时，允许回退定位
   }
@@ -201,10 +201,10 @@ export function toErrorItems(
             start: s,
             end: e,
             suggestion,
-            type: enforcedType,
+            type: enforcedType || rawType || undefined,
             explanation: description ?? explanation ?? '',
             metadata: {
-              locate: 'unique-text',
+              locate: 'unique-text' as any,
               originalLLM: { start, end, rawType, quote, confidence, rawId },
               confidence,
             },
@@ -222,7 +222,7 @@ export function toErrorItems(
             start: near,
             end: near + text.length,
             suggestion,
-            type: enforcedType,
+            type: enforcedType || rawType || undefined,
             explanation: description ?? explanation ?? '',
             metadata: {
               locate: 'closest-by-hint',
@@ -241,7 +241,7 @@ export function toErrorItems(
       start,
       end,
       suggestion,
-      type: enforcedType,
+      type: enforcedType || rawType || undefined,
       explanation: description ?? explanation ?? '',
       metadata: {
         locate: 'exact',

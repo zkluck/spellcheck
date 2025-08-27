@@ -28,8 +28,8 @@ describe('API /api/check SSE 管道选择', () => {
     const body = {
       text: '测试文本',
       options: {
-        enabledTypes: ['grammar'],
-        pipeline: [{ id: 'reviewer', runs: 1 }],
+        // enabledTypes 已移除
+        pipeline: [{ id: 'basic', runs: 1 }],
       },
     };
 
@@ -56,14 +56,14 @@ describe('API /api/check SSE 管道选择', () => {
       if (done) break;
     }
 
-    expect(capturedRoles).toMatchObject([{ id: 'reviewer', runs: 1 }]);
+    expect(capturedRoles).toMatchObject([{ id: 'basic', runs: 1 }]);
   });
 
   it('未提供 options.pipeline 时，SSE 分支应回退到 config.langchain.workflow.pipeline', async () => {
     const body = {
       text: '测试文本',
       options: {
-        enabledTypes: ['grammar'],
+        // enabledTypes 已移除
       },
     };
 

@@ -1,28 +1,25 @@
 # AI 中文文本检测系统
 
-基于 Next.js + TypeScript + LangChain 构建的智能中文文本检测系统，集成规则引擎和 LLM 双重检测，提供高准确率的语法、拼写、标点和流畅性检测。
+基于 Next.js + TypeScript + LangChain 构建的智能中文文本检测系统，提供高准确率的流畅性检测。
 
 ## 核心特性
 
-- **智能检测**：拼写、语法、标点、流畅性
+- **智能检测**：流畅性检测（所有错误类型相关功能已完全移除）
 - **执行模型（无串联）**：每个角色/每轮运行都基于初始文本执行，patchedText 仅用于展示与最终返回聚合
 - **稳健流式 SSE**：:ready 预热、15s keep-alive 心跳、断连检测与资源清理
 - **可取消与超时**：原生 AbortSignal，客户端断开即时中止；全局/角色级超时（ANALYZE_TIMEOUT_MS）
 - **类型安全**：Zod 运行时校验 + TypeScript 零 any，响应体与事件显式类型化
-- **可配置工作流**：通过 WORKFLOW_PIPELINE 配置角色与轮次（如 basic*2）
+- **可配置工作流**：通过 WORKFLOW_PIPELINE 配置角色与轮次（如 basic\*2）
 
 ## 🏗️ 系统架构
 
 ### 检测引擎
+
 - **规则引擎**：基于正则表达式的快速检测，处理常见错误模式
-- **LLM智能体**：深度语义分析，处理复杂语法和表达问题
+- **LLM 智能体**：深度语义分析，处理复杂表达问题
 - **后处理器**：智能合并结果，冲突解决，置信度过滤
 
-### 检测类型
-- **拼写检测** (spelling)：错别字、同音字误用
-- **语法检测** (grammar)：量词错误、主谓搭配、成分缺失
-- **标点检测** (punctuation)：标点错误、重复标点、全半角混用
-- **流畅性检测** (fluency)：表达优化、冗余消除、语序调整（前端不显示该类型徽章）
+<!-- 错误类型相关内容已移除 -->
 
 ## ⚙️ 执行模型与管线（非串联模式）
 
@@ -38,9 +35,10 @@
 3. **查看结果**：右侧面板显示检测到的问题和修正建议
 4. **应用修正**：点击建议项一键应用修正，或手动编辑文本
 
-> 提示：前端 ResultPanel 已移除“来源筛选”下拉；不显示“流畅”类型徽章。来源信息仍用于标签展示与内部统计；后端仍可能产生 `fluency` 类型并参与合并/排序与建议生成。
+> 提示：前端 ResultPanel 已移除“来源筛选”下拉；所有错误类型相关功能已完全移除。来源信息仍用于标签展示与内部统计。
 
 ### 快捷键
+
 - `Ctrl + Enter`：开始检测
 - `↑ / ↓`：在检测结果间切换上一条/下一条
 - `Enter`：应用当前选中的修正建议
@@ -50,6 +48,7 @@
 ## 🚀 快速开始
 
 ### 环境要求
+
 - Node.js 18+
 - OpenAI API Key
 
@@ -79,30 +78,27 @@ npm run dev
 # 必需
 OPENAI_API_KEY=your_api_key
 
-# 可选 · 检测阈值（src/lib/config.ts -> detection.thresholds）
-DETECTION_SPELLING_THRESHOLD=0.85
-DETECTION_GRAMMAR_THRESHOLD=0.75
-DETECTION_PUNCTUATION_THRESHOLD=0.90
-DETECTION_FLUENCY_THRESHOLD=0.65
+# 可选 · 检测配置
+# 错误类型相关阈值已移除
 
 # 可选 · LangChain / 管线
 ANALYZE_TIMEOUT_MS=60000                 # 全局/角色级超时（SSE/JSON 均生效）
+
+# 多智能体工作流配置
+# 仅支持 basic | reviewer
+# 注意：该默认流水线可被 API 请求体中的 options.pipeline 临时覆盖。
 WORKFLOW_PIPELINE="basic*1"              # 运行顺序与次数，示例："basic*2"
 MERGE_CONFIDENCE_FIRST=1                 # 合并阶段优先高置信度
 
 # 可选 · basic agent（src/lib/config.ts -> langchain.agents.basic）
 BASIC_MIN_CONFIDENCE=0.9
-BASIC_MAX_OUTPUT=200
+BASIC_MAX_OUTPUT=300
 BASIC_RETURN_PATCHED_TEXT=1              # 是否在响应中返回 patchedText
 BASIC_REQUIRE_EXACT_INDEX=1
 BASIC_ALLOW_LOCATE_FALLBACK=0
 
-# 可选 · fluent（合并到 basic.fluency）
-FLUENT_MIN_CONFIDENCE=0.9
-FLUENT_MAX_OUTPUT=200
-FLUENT_REQUIRE_EXACT_INDEX=1
-FLUENT_ALLOW_LOCATE_FALLBACK=0
-# 注：前端 UI 不显示“流畅”类型徽章，上述变量仅影响后端生成/合并
+# 可选 · fluent（已移除）
+# 所有错误类型相关功能已完全移除
 
 # 可选 · 其他
 OPENAI_BASE_URL=your_base_url            # 第三方 API 网关
@@ -113,7 +109,7 @@ E2E_ENABLE=0                             # 端到端测试开关（1 开启）
 
 - **前端**：Next.js 14 + React 18 + TypeScript 5 + SCSS
 - **后端**：Next.js API Routes + Node.js
-- **AI引擎**：LangChain + OpenAI GPT
+- **AI 引擎**：LangChain + OpenAI GPT
 - **数据校验**：Zod 类型安全
 - **测试框架**：Vitest + Playwright
 - **代码质量**：ESLint + Prettier + Husky
@@ -168,6 +164,7 @@ spellcheck/
 ├── tests/                       # Vitest / Playwright
 └── examples/                    # 示例脚本
 ```
+
 ## 🔧 自定义配置
 
 ### 专业词典与规则扩展
@@ -190,17 +187,6 @@ export const professionalTerms = {
 // import { professionalTerms } from './dictionaries/professional';
 ```
 
-### 检测阈值调整
-
-通过环境变量调整各类型检测的置信度阈值：
-
-```bash
-DETECTION_SPELLING_THRESHOLD=0.85    # 拼写检测阈值
-DETECTION_GRAMMAR_THRESHOLD=0.75     # 语法检测阈值  
-DETECTION_PUNCTUATION_THRESHOLD=0.90 # 标点检测阈值
-DETECTION_FLUENCY_THRESHOLD=0.65     # 流畅性检测阈值
-```
-
 ## 🚀 部署
 
 ```bash
@@ -218,21 +204,20 @@ npm run start
 ### 非流式 JSON · POST `/api/check`
 
 **请求体（Zod: `AnalyzeRequestSchema`）**
+
 ```json
 {
   "text": "需要检查的文本",
   "options": {
-    "enabledTypes": ["spelling", "grammar", "punctuation", "fluency"],
-    "pipeline": [
-      { "id": "basic", "runs": 2 }
-    ]
+    "pipeline": [{ "id": "basic", "runs": 2 }]
   }
 }
 ```
 
-注：即使包含 `"fluency"`，前端不会显示“流畅”类型徽章；“来源筛选”下拉已移除（来源信息仅用于标签与内部统计）。
+注：所有错误类型相关功能已完全移除；“来源筛选”下拉已移除（来源信息仅用于标签与内部统计）。
 
 **响应（TypeScript: `AnalyzeResponse`）**
+
 ```json
 {
   "errors": [
@@ -242,14 +227,12 @@ npm run start
       "end": 5,
       "text": "错误片段",
       "suggestion": "修正建议",
-      "type": "spelling",
       "metadata": { "confidence": 0.95, "source": "rule_engine" }
     }
   ],
   "patchedText": "（可选，取决于 BASIC_RETURN_PATCHED_TEXT）",
   "meta": {
     "elapsedMs": 123,
-    "enabledTypes": ["spelling", "grammar"],
     "reviewer": {
       "ran": false,
       "status": "skipped",
@@ -282,7 +265,7 @@ curl -N \
   -H "Content-Type: application/json" \
   -d '{
     "text": "测试文本",
-    "options": { "enabledTypes": ["grammar"], "pipeline": [{"id":"basic","runs":1}] }
+    "options": { "pipeline": [{"id":"basic","runs":1}] }
   }' \
   http://localhost:3000/api/check
 ```
@@ -308,4 +291,3 @@ curl -N \
 ## 📜 许可证
 
 本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
-

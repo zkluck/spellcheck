@@ -44,10 +44,7 @@ export const config = {
      * 置信度阈值配置
      */
     thresholds: {
-      spelling: getEnvNumber('DETECTION_SPELLING_THRESHOLD', 0.85),
-      grammar: getEnvNumber('DETECTION_GRAMMAR_THRESHOLD', 0.75),
-      punctuation: getEnvNumber('DETECTION_PUNCTUATION_THRESHOLD', 0.90),
-      fluency: getEnvNumber('DETECTION_FLUENCY_THRESHOLD', 0.65)
+      // fluency 相关配置已删除
     },
     /**
      * 规则引擎配置
@@ -130,37 +127,10 @@ export const config = {
          * 默认 false；环境变量：BASIC_ALLOW_LOCATE_FALLBACK
          */
         allowLocateFallback: getEnvBool('BASIC_ALLOW_LOCATE_FALLBACK', false),
-        /**
-         * 合并 Fluency（流畅性）检测的独立阈值配置
-         * 为兼容已有环境变量，仍读取 FLUENT_*，但不再单独暴露 fluent agent 配置段。
-         */
-        fluency: {
-          /**
-           * 置信度阈值（仅保留 >= 阈值），默认 0.9
-           * 环境变量：FLUENT_MIN_CONFIDENCE
-           */
-          minConfidence: getEnvNumber('FLUENT_MIN_CONFIDENCE', 0.9),
-          /**
-           * 最大输出数量上限（返回前强制裁剪），默认 200
-           * 环境变量：FLUENT_MAX_OUTPUT
-           */
-          maxOutput: getEnvNumber('FLUENT_MAX_OUTPUT', 200),
-          /**
-           * 是否强制仅保留索引“严格匹配”的项（metadata.locate === 'exact'）
-           * 默认 true；环境变量：FLUENT_REQUIRE_EXACT_INDEX
-           */
-          requireExactIndex: getEnvBool('FLUENT_REQUIRE_EXACT_INDEX', true),
-          /**
-           * 是否允许在 toErrorItems() 中使用基于“唯一文本”的回退定位
-           * 默认 false；环境变量：FLUENT_ALLOW_LOCATE_FALLBACK
-           */
-          allowLocateFallback: getEnvBool('FLUENT_ALLOW_LOCATE_FALLBACK', false),
-        },
       },
     },
   },
 };
-
 
 /**
  * 解析 WORKFLOW_PIPELINE 环境变量

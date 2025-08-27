@@ -31,8 +31,8 @@ describe('API /api/check pipeline 选择', () => {
     const body = {
       text: '测试文本',
       options: {
-        enabledTypes: ['grammar'],
-        pipeline: [{ id: 'reviewer', runs: 1 }],
+        // enabledTypes 已移除
+        pipeline: [{ id: 'basic', runs: 1 }],
       },
     };
 
@@ -44,14 +44,14 @@ describe('API /api/check pipeline 选择', () => {
 
     const res = await POST(req as any);
     expect(res.status).toBe(200);
-    expect(capturedRoles).toMatchObject([{ id: 'reviewer', runs: 1 }]);
+    expect(capturedRoles).toMatchObject([{ id: 'basic', runs: 1 }]);
   });
 
   it('未提供 pipeline 时应回退到 config.langchain.workflow.pipeline', async () => {
     const body = {
       text: '测试文本',
       options: {
-        enabledTypes: ['grammar'],
+        // enabledTypes 已移除
       },
     };
 

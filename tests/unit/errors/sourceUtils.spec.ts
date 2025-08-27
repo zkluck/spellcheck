@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { ErrorItem } from '@/types/error';
-import { normalizeAgent, getSources, attachSources } from '@/lib/errors/sourceUtils';
+import {
+  normalizeAgent,
+  getSources,
+  attachSources,
+} from '@/lib/errors/sourceUtils';
 
 function makeErr(overrides?: Partial<ErrorItem>): ErrorItem {
   return {
@@ -9,7 +13,6 @@ function makeErr(overrides?: Partial<ErrorItem>): ErrorItem {
     end: overrides?.end ?? 1,
     text: overrides?.text ?? 'a',
     suggestion: overrides?.suggestion ?? '',
-    type: overrides?.type ?? 'spelling',
     explanation: overrides?.explanation,
     metadata: overrides?.metadata as Record<string, unknown> | undefined,
   } as ErrorItem;
@@ -19,7 +22,8 @@ describe('sourceUtils.normalizeAgent', () => {
   it('maps known agents', () => {
     expect(normalizeAgent('basic')).toBe('basic');
     expect(normalizeAgent('BASIC')).toBe('basic');
-    expect(normalizeAgent('fluent')).toBe('fluent');
+    // fluent 类型已移除，现在应该返回 null
+    expect(normalizeAgent('fluent')).toBeNull();
     expect(normalizeAgent('reviewer')).toBe('reviewer');
   });
   it('returns null for unknown', () => {
@@ -35,11 +39,13 @@ describe('sourceUtils.getSources', () => {
     expect(getSources(e)).toEqual([]);
   });
   it('reads metadata.sources and lowercases + dedup', () => {
-    const e = makeErr({ metadata: { sources: ['Basic', 'basic', 'Fluent'] } as unknown as Record<string, unknown> });
-    expect(getSources(e)).toEqual(['basic', 'fluent']);
+    const e = makeErr({ metadata: { sources: ['Basic', 'basic', 'Reviewer'] } as unknown as Record<string, unknown> });
+    expect(getSources(e)).toEqual(['basic', 'reviewer']);
   });
   it('reads metadata.source string fallback', () => {
-    const e = makeErr({ metadata: { source: 'Reviewer' } as unknown as Record<string, unknown> });
+    const e = makeErr({
+      metadata: { source: 'Reviewer' } as unknown as Record<string, unknown>,
+    });
     expect(getSources(e)).toEqual(['reviewer']);
   });
   it('reads top-level source fallback for legacy data', () => {
@@ -63,14 +69,19 @@ describe('sourceUtils.attachSources', () => {
     expect(getSources(out)).toEqual(['reviewer']);
   });
   it('merges with existing sources and dedups/lowercases', () => {
-    const e = makeErr({ metadata: { sources: ['Basic'] } as unknown as Record<string, unknown> });
-    const [out] = attachSources([e], 'Fluent');
-    expect(getSources(out)).toEqual(['basic', 'fluent']);
+    const e = makeErr({
+      metadata: { sources: ['Basic'] } as unknown as Record<string, unknown>,
+    });
+    const [out] = attachSources([e], 'Reviewer');
+    expect(getSources(out)).toEqual(['basic', 'reviewer']);
   });
   it('preserves other metadata fields', () => {
-    const e = makeErr({ metadata: { foo: 1 } as unknown as Record<string, unknown> });
+    const e = makeErr({
+      metadata: { foo: 1 } as unknown as Record<string, unknown>,
+    });
     const [out] = attachSources([e], 'basic');
-    const meta = (out as unknown as { metadata?: Record<string, unknown> }).metadata ?? {};
+    const meta =
+      (out as unknown as { metadata?: Record<string, unknown> }).metadata ?? {};
     expect(meta['foo']).toBe(1);
   });
 });

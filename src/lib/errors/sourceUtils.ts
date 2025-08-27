@@ -11,18 +11,23 @@
  */
 import type { ErrorItem } from '@/types/error';
 
-// 支持的来源标签类型
-export type SourceTag = 'basic' | 'fluent' | 'reviewer';
+/**
+ * 支持的来源标签类型
+ * 注：已移除 fluent 类型
+ */
+export type SourceTag = 'basic' | 'reviewer';
 
 /**
  * 将后端的 agent 字段规范化为固定的来源标签。
  * 未识别时返回 null，用于保持向后兼容。
+ * 注：已移除 fluent 类型处理
  */
 export function normalizeAgent(name?: string | null): SourceTag | null {
   if (!name) return null;
   const v = String(name).trim().toLowerCase();
   if (v === 'basic') return 'basic';
-  if (v === 'fluent') return 'fluent';
+  // fluent 类型已移除，返回 null
+  if (v === 'fluent') return null;
   if (v === 'reviewer') return 'reviewer';
   return null;
 }

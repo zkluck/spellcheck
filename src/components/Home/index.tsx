@@ -35,8 +35,7 @@ const ResultPanel = dynamic(() => import('@/components/ResultPanel'), {
   ),
 });
 
-// 支持的错误类型配置
-const enabledTypes: string[] = ['grammar', 'spelling', 'punctuation', 'fluency'];
+// 错误类型配置已移至后端，前端不再指定默认类型
 const DRAFT_KEY = 'spellcheck.textDraft.v1';
 
 export default function Home() {
@@ -178,7 +177,7 @@ export default function Home() {
       const pipeline: RolePipelineEntry[] = customPipeline;
       const outcome = await sseCheck(
         text,
-        { enabledTypes, pipeline },
+        { pipeline },
         controller,
         {
           onChunk: (arr, meta) => {

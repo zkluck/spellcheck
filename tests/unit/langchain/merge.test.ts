@@ -11,7 +11,7 @@ function e(partial: Partial<ErrorItem>): ErrorItem {
     end: partial.end ?? 1,
     text: partial.text ?? 'x',
     suggestion: partial.suggestion ?? 'x',
-    type: partial.type ?? 'grammar',
+    // type 字段已移除
     explanation: partial.explanation,
     metadata: partial.metadata,
   };
@@ -23,7 +23,7 @@ describe('mergeErrors', () => {
   });
 
   it('dedupes identical items', () => {
-    const a = e({ id: 'a', start: 0, end: 2, text: '今天', type: 'grammar' });
+    const a = e({ id: 'a', start: 0, end: 2, text: '今天' });
     const res = mergeErrors(text, [[a, a]]);
     expect(res.length).toBe(1);
     expect(res[0].id).toBe('a');
@@ -53,8 +53,8 @@ describe('mergeErrors', () => {
     process.env.MERGE_CONFIDENCE_FIRST = '1';
     vi.resetModules();
     const { mergeErrors: mergeC } = await import('@/lib/langchain/merge');
-    const low = e({ id: 'low', start: 0, end: 2, text: '今天', type: 'grammar', metadata: { confidence: 0.4 }, explanation: 'x' });
-    const high = e({ id: 'high', start: 0, end: 2, text: '今天', type: 'fluency', metadata: { confidence: 0.9 }, explanation: 'x' });
+    const low = e({ id: 'low', start: 0, end: 2, text: '今天', metadata: { confidence: 0.4 }, explanation: 'x' });
+    const high = e({ id: 'high', start: 0, end: 2, text: '今天', metadata: { confidence: 0.9 }, explanation: 'x' });
     const res = mergeC(text, [[low, high]]);
     expect(res.length).toBe(1);
     expect(res[0].id).toBe('high');
@@ -66,8 +66,8 @@ describe('mergeErrors', () => {
     process.env.MERGE_CONFIDENCE_FIRST = '1';
     vi.resetModules();
     const { mergeErrors: mergeC } = await import('@/lib/langchain/merge');
-    const low = e({ id: 'low', start: 0, end: 2, text: '今天', type: 'grammar', metadata: { confidence: 0.3 } });
-    const high = e({ id: 'high', start: 1, end: 3, text: '天气', type: 'grammar', metadata: { confidence: 0.8 } });
+    const low = e({ id: 'low', start: 0, end: 2, text: '今天', metadata: { confidence: 0.3 } });
+    const high = e({ id: 'high', start: 1, end: 3, text: '天气', metadata: { confidence: 0.8 } });
     const res = mergeC(text, [[low, high]]);
     expect(res.length).toBe(1);
     expect(res[0].id).toBe('high');

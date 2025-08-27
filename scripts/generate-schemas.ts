@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  EnabledTypeEnum,
   AnalyzeOptionsSchema,
   AnalyzeRequestSchema,
   CoordinatorAgentInputSchema,
@@ -16,7 +15,6 @@ const outDir = path.resolve(process.cwd(), 'schemas', 'json');
 fs.mkdirSync(outDir, { recursive: true });
 
 const entries: Array<[string, any]> = [
-  ['EnabledTypeEnum', EnabledTypeEnum],
   ['AnalyzeOptions', AnalyzeOptionsSchema],
   ['AnalyzeRequest', AnalyzeRequestSchema],
   ['CoordinatorAgentInput', CoordinatorAgentInputSchema],

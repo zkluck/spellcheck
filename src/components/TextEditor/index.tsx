@@ -48,7 +48,7 @@ export default function TextEditor({
         parts.push(value.substring(lastIndex, error.start));
       }
 
-      // Add the highlighted error text
+      // 为所有错误类型添加高亮
       parts.push(
         <span
           key={error.id}

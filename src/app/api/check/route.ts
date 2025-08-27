@@ -1,5 +1,5 @@
 // 切换为基于“角色流水线执行器”的实现
-import { AnalyzeRequestSchema, EnabledType } from '@/types/schemas';
+import { AnalyzeRequestSchema } from '@/types/schemas';
 import { ErrorItemSchema } from '@/types/error';
 import type { ErrorItem } from '@/types/error';
 import { randomUUID } from 'crypto';
@@ -27,7 +27,6 @@ type ReviewerStatus = 'skipped' | 'error' | 'empty' | 'ok';
 interface DecisionsCount { accepted: number; rejected: number; modified: number }
 interface AnalyzeResponseMeta {
   elapsedMs: number;
-  enabledTypes: EnabledType[];
   reviewer: {
     ran: boolean;
     status: ReviewerStatus;
@@ -107,7 +106,7 @@ export async function POST(request: Request) {
           start(controller) {
             controller.enqueue(encoder.encode(':ready\n\n'));
             controller.enqueue(encoder.encode('data: notjson\n\n'));
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'final', errors: [], meta: { elapsedMs: 5, enabledTypes: ['grammar'] } })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'final', errors: [], meta: { elapsedMs: 5 } })}\n\n`));
             controller.close();
           },
         });
@@ -252,7 +251,7 @@ export async function POST(request: Request) {
           roles: roleEntries,
           input: { text },
           signal: controller.signal,
-          metadata: { enabledTypes: options.enabledTypes },
+          metadata: {},
         })) {
           if (ev.stage === 'final') {
             const payload = (ev.payload ?? {}) as Record<string, unknown>;
@@ -330,7 +329,6 @@ export async function POST(request: Request) {
         ...(config.langchain.agents.basic.returnPatchedText ? { patchedText: finalPatchedText ?? text } : {}),
         meta: {
           elapsedMs,
-          enabledTypes: options.enabledTypes,
           reviewer: {
             ran: reviewerRan,
             status: reviewerStatus as ReviewerStatus,
@@ -423,7 +421,7 @@ export async function POST(request: Request) {
             roles: roleEntries,
             input: { text },
             signal: roleAbort.signal,
-            metadata: { enabledTypes: options.enabledTypes },
+            metadata: {},
           })) {
             if (ev.stage === 'start') {
               // 可选：发送开始事件（当前协议不要求）
@@ -500,7 +498,6 @@ export async function POST(request: Request) {
             errors: finalErrors,
             meta: {
               elapsedMs,
-              enabledTypes: options.enabledTypes,
               reviewer: {
                 ran: reviewerRan,
                 status: reviewerStatus as ReviewerStatus,
@@ -528,6 +525,7 @@ export async function POST(request: Request) {
           }
           log('sse.close', { aborted: request.signal.aborted === true, totalElapsedMs: Date.now() - startedAtAll });
         }
+
       },
     });
 

@@ -99,18 +99,7 @@
   transition: background-color 0.2s;
 }
 
-.highlight--grammar {
-  background-color: rgba(239, 68, 68, 0.18);
-}
-.highlight--spelling {
-  background-color: rgba(245, 158, 11, 0.18);
-}
-.highlight--punctuation {
-  background-color: rgba(14, 165, 233, 0.18);
-}
-.highlight--fluency {
-  background-color: rgba(99, 102, 241, 0.18);
-}
+/* 所有错误类型样式已移除 */
 
 .highlight--active {
   background-color: rgba(59, 130, 246, 0.28);

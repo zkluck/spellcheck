@@ -3,7 +3,8 @@ import type { ErrorItem } from '@/types/error';
 import type { RolePipelineEntry } from '@/types/schemas';
 
 export type CheckOptions = {
-  enabledTypes: string[];
+  // 前端不再指定错误类型，由后端根据配置决定
+  enabledTypes?: string[];
   pipeline?: RolePipelineEntry[];
 };
 

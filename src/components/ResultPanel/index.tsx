@@ -332,34 +332,8 @@ function ResultPanel({
     });
   }, [virtualizer]);
 
-  const getErrorTypeLabel = (type: string) => {
-    switch (type) {
-      case 'grammar':
-        return '语法';
-      case 'spelling':
-        return '拼写';
-      case 'punctuation':
-        return '标点';
-      case 'fluency':
-        return '流畅';
-      default:
-        return '其他';
-    }
-  };
-
   const getDefaultReason = useCallback((error: ErrorItem) => {
-    switch (error.type) {
-      case 'grammar':
-        return '句法结构或搭配不当，可能存在主谓宾不一致、修饰关系错误等，建议按提示调整语序或用词。';
-      case 'spelling':
-        return '检测到疑似错别字或同音/近形混淆，请参考建议用词进行纠正。';
-      case 'punctuation':
-        return '标点符号使用可能不规范，如多余/缺失/全角半角混用等，建议按提示修正。';
-      case 'fluency':
-        return '存在重复、赘余或不够通顺的表述，建议精简或优化以提升可读性与流畅度。';
-      default:
-        return '检测到潜在问题，请参考建议。';
-    }
+    return '检测到潜在问题，请参考建议。';
   }, []);
 
   const getDisplayExplanation = useCallback((error: ErrorItem) => {
@@ -409,8 +383,6 @@ function ResultPanel({
     switch (s) {
       case 'basic':
         return '基础';
-      case 'fluent':
-        return '流畅';
       case 'reviewer':
         return '审阅';
       default:
@@ -471,7 +443,6 @@ function ResultPanel({
     lines.push(`共 ${viewErrors.length} 条检测结果`);
     viewErrors.forEach((err, i) => {
       const idx = i + 1;
-      const type = getErrorTypeLabel(err.type);
       const range = getIndexRange(err);
       const conf = getConfidence(err);
       const confPct = conf == null ? '' : `${(conf * 100).toFixed(0)}%`;
@@ -484,7 +455,7 @@ function ResultPanel({
       const explanation = getDisplayExplanation(err);
       lines.push(
         [
-          `#${idx} [${type}] ${range ? `(${range})` : ''}`.trim(),
+          `#${idx} ${range ? `(${range})` : ''}`.trim(),
           `原文：${err.text}`,
           `建议：${err.suggestion}`,
           quote && quote !== err.text ? `引用：${quote}` : '',
@@ -848,12 +819,7 @@ function ResultPanel({
                 >
                   <div className={cn('error-item__inner')}>
                   <div className={cn('error-item__header')}>
-                    {/* 产品需求：移除“流畅”类型徽章，仅保留其它类型显示 */}
-                    {error.type !== 'fluency' && (
-                      <span className={cn('error-item__type', `error-item__type--${error.type}`)}>
-                        {getErrorTypeLabel(error.type)}
-                      </span>
-                    )}
+                    {/* 类型徽章已删除 */}
                     {(() => {
                       const c = getConfidence(error);
                       if (c == null) return null;

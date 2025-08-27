@@ -35,12 +35,11 @@ export class ResultPostProcessor {
    * 应用置信度阈值过滤
    */
   private static applyConfidenceThresholds(results: ErrorItem[]): ErrorItem[] {
-    const thresholds = config.detection.thresholds;
+    const defaultThreshold = 0.5;
     
     return results.filter(item => {
       const confidence = item.metadata?.confidence ?? 0.5;
-      const threshold = thresholds[item.type as keyof typeof thresholds] ?? 0.5;
-      return confidence >= threshold;
+      return confidence >= defaultThreshold;
     });
   }
 
@@ -98,7 +97,7 @@ export class ResultPostProcessor {
       return results;
     }
     
-    return results.filter(item => enabledTypes.includes(item.type));
+    return results.filter(item => item.type !== undefined && enabledTypes.includes(item.type));
   }
 
   /**
@@ -130,66 +129,9 @@ export class ResultPostProcessor {
    * 按类型验证
    */
   private static validateByType(item: ErrorItem): boolean {
-    switch (item.type) {
-      case 'spelling':
-        return this.validateSpelling(item);
-      case 'punctuation':
-        return this.validatePunctuation(item);
-      case 'grammar':
-        return this.validateGrammar(item);
-      case 'fluency':
-        return this.validateFluency(item);
-      default:
-        return true;
-    }
-  }
-
-  /**
-   * 拼写验证
-   */
-  private static validateSpelling(item: ErrorItem): boolean {
-    // 避免过度纠正常见词汇
-    const commonWords = ['的', '地', '得', '在', '再', '做', '作'];
-    const isCommonWord = commonWords.some(word => 
-      item.text.includes(word) || item.suggestion.includes(word)
-    );
-    
-    if (isCommonWord) {
-      // 对常见词汇要求更高的置信度
-      return (item.metadata?.confidence ?? 0) >= 0.9;
-    }
-    
+    // 不再基于类型进行验证，直接返回 true
     return true;
   }
 
-  /**
-   * 标点验证
-   */
-  private static validatePunctuation(item: ErrorItem): boolean {
-    // 标点符号替换应该保持文本长度相近
-    const lengthDiff = Math.abs(item.text.length - item.suggestion.length);
-    return lengthDiff <= 2;
-  }
-
-  /**
-   * 语法验证
-   */
-  private static validateGrammar(item: ErrorItem): boolean {
-    // 语法修改不应该大幅改变文本结构
-    const textChars = item.text.length;
-    const suggestionChars = item.suggestion.length;
-    const charDiff = Math.abs(textChars - suggestionChars);
-    
-    // 允许较小的字符数变化（如量词替换）
-    return charDiff <= Math.max(2, textChars * 0.5);
-  }
-
-  /**
-   * 流畅性验证
-   */
-  private static validateFluency(item: ErrorItem): boolean {
-    // 流畅性修改应该保持语义相近
-    // 这里可以添加更复杂的语义相似度检查
-    return item.text.length > 0 && item.suggestion.length > 0;
-  }
+  // spelling、punctuation、grammar 相关的验证方法已删除
 }

@@ -20,20 +20,7 @@ const testTexts = [
 function mockLLMDetection(text: string): ErrorItem[] {
   const results: ErrorItem[] = [];
   
-  // 模拟一些 LLM 可能检测到的错误
-  if (text.includes('进行了一个')) {
-    results.push({
-      id: 'llm_fluency_1',
-      start: text.indexOf('进行了一个深入的研究'),
-      end: text.indexOf('进行了一个深入的研究') + '进行了一个深入的研究'.length,
-      text: '进行了一个深入的研究',
-      suggestion: '深入研究',
-      type: 'fluency',
-      explanation: '简化冗余表达',
-      metadata: { confidence: 0.85, source: 'llm' }
-    });
-  }
-  
+  // fluency 相关模拟代码已删除
   return results;
 }
 
