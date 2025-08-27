@@ -204,7 +204,7 @@ export function toErrorItems(
             type: enforcedType || rawType || undefined,
             explanation: description ?? explanation ?? '',
             metadata: {
-              locate: 'unique-text' as any,
+              locate: 'unique-text',
               originalLLM: { start, end, rawType, quote, confidence, rawId },
               confidence,
             },

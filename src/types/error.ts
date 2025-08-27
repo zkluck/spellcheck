@@ -11,7 +11,7 @@ export const ErrorMetadataSchema = z
     source: z.enum(['rule_engine', 'llm']).optional(),
     ruleId: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
-    locate: z.enum(['exact', 'closest-by-hint']).optional(),
+    locate: z.enum(['exact', 'closest-by-hint', 'unique-text']).optional(),
     mergedFrom: z.array(z.string()).optional(),
   })
   .catchall(z.unknown());
